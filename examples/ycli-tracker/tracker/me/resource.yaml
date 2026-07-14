@@ -1,0 +1,58 @@
+domain: tracker
+resource: me
+base_url: https://api.tracker.yandex.net/v3
+security: oauth_token
+module_docs:
+  models: "Pydantic model for Tracker /myself (Me)."
+  client: "Declarative Tracker /myself client (uplink) — transport ONLY."
+  cli: "`tracker me` commands."
+  mcp: "Tracker /myself FastMCP tool (reads-only) — Depends DI."
+  cli_group_help: "Tracker authenticated user."
+  mcp_server: "tracker-me"
+  client_class: "Declarative HTTP for ``/myself``."
+documentation: "Tracker /myself resource (the authenticated user)."
+models:
+  - name: Me
+    documentation: "The authenticated Tracker user (``GET /v3/myself``) — a safe auth probe."
+    fields:
+      - {name: uid, type: integer, optional: true}
+      - {name: login, type: string, optional: true}
+      - {name: display, type: string, optional: true}
+      - {name: email, type: string, optional: true}
+operations:
+  - name: get
+    method: GET
+    path: myself
+    operationId: me_get
+    documentation: "``GET /myself`` → the authenticated ``Me`` (a safe auth probe)."
+    responses:
+      200: {model: Me}
+    mcp:
+      name: me_get
+      safety: RO
+      title: "Get current Tracker user"
+      documentation: "The authenticated Yandex Tracker user (a safe auth probe)."
+      require_found:
+        sentinel: "r.login is None"
+        message: "auth probe failed — empty user (check YANDEX_ID_OAUTH_TOKEN)"
+    cli:
+      name: get
+      documentation: "Print the authenticated user (a safe auth probe)."
+    tests:
+      # PRELIMINARY (Task 3 scope) — Task 6 finalizes these fixtures/asserts so the tests
+      # emitter reproduces ycli's tests/yandex/tracker/test_me.py byte-for-byte. This block only
+      # needs to load validly into tuple[ir.TestCase, ...] today; see task-3-report.md.
+      - {name: me_client_get, kind: client, http_method: GET, path: myself, status: 200,
+         response_json: {uid: 42, login: alice, display: "Alice A.", email: alice@example.com},
+         call: "TrackerClient(oauth_token=\"t\", organization_id=\"o\").me.get()",
+         asserts: ["isinstance(me, Me)", "me.login == \"alice\" and me.uid == 42"]}
+      - {name: me_cli_get, kind: cli, http_method: GET, path: myself, status: 200,
+         response_json: {uid: 42, login: alice, display: "Alice A.", email: alice@example.com},
+         asserts: ["res.exit_code == 0", "json.loads(res.stdout)[\"login\"] == \"alice\""]}
+      - {name: me_mcp_tool, kind: mcp, http_method: GET, path: myself, status: 200,
+         response_json: {uid: 42, login: alice, display: "Alice A.", email: alice@example.com},
+         asserts: ["result.data.login == \"alice\""]}
+      - {name: me_mcp_auth_guard, kind: mcp_guard, http_method: GET, path: myself, status: 401,
+         response_json: {}, asserts: ["True"]}
+      - {name: me_mcp_empty_response_guard, kind: mcp_guard, http_method: GET, path: myself,
+         status: 200, response_json: {}, asserts: ["True"]}
