@@ -6,3 +6,6 @@ __pycache__/
 dist/
 *.egg-info/
 .coverage
+
+# AI
+PROMPT.md
