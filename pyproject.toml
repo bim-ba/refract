@@ -53,6 +53,11 @@ exclude_also = [
 target-version = "py312"
 line-length = 100
 src = ["refract", "tests"]
+# examples/ holds spec fixtures and golden oracles — verbatim external source (real ycli code,
+# formatted by ycli's own ruff) used only as byte-equality targets, not refract's own source.
+# Never lint/reformat it here: refract's ruff config (isort first-party, version skew) would
+# rewrite the golden and defeat the byte-identity test.
+extend-exclude = ["examples"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -70,6 +75,11 @@ known-first-party = ["refract"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["N802", "ANN"]
+
+[tool.ty.src]
+# See the ruff extend-exclude note: examples/ is external golden source (imports ycli/uplink,
+# not installed here), a byte-equality oracle — not refract code to type-check.
+exclude = ["examples"]
 
 [tool.ty.environment]
 python-version = "3.12"
