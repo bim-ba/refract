@@ -8,4 +8,5 @@ dist/
 .coverage
 
 # AI
+.mcp.json
 PROMPT.md
