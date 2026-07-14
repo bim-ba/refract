@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 __all__ = [
+    "Body",
     "CliMeta",
     "Field",
     "McpMeta",
@@ -87,6 +88,22 @@ class Param:
     alias: str | None = None
     default: str | None = None
     help: str | None = None
+
+
+@dataclass(frozen=True)
+class Body:
+    """The write-body registry entry for one operation (§7 design.md; ``TypedModel`` for now).
+
+    ``mode`` names the body strategy (``"TypedModel"`` — a hand-written pydantic model the caller
+    passes verbatim, split into an internal bodyless-JSON method + a public typed method, e.g.
+    ycli's ``PrioritiesClient.create``); ``model`` is that model's name; ``dump`` is the *source
+    text* of the ``model_dump(...)`` keyword arguments the client renders when serializing it
+    (e.g. ``"by_alias=True, exclude_none=True"``).
+    """
+
+    mode: str
+    model: str
+    dump: str
 
 
 @dataclass(frozen=True)
@@ -161,6 +178,7 @@ class Operation:
     path: str
     operation_id: str
     params: tuple[Param, ...] = ()
+    body: Body | None = None
     response_model: str | None = None
     documentation: str | None = None
     mcp: McpMeta | None = None

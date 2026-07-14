@@ -7,9 +7,11 @@ consume (``docs/design.md`` §§1-5) — the pydantic layer never leaks past thi
 
 Neutral-type lowering (``_lower_type``) is the one place the v2 neutral type system
 (``docs/design.md`` §2: ``string|integer|number|boolean|any`` + ``optional``) is realized for
-Python. Only the scalar map is implemented today: ``list<T>``/``map<K,V>``/``ref<Model>`` are
-declared in the design doc but unused by the ``me`` resource, so — per the Task 3 brief's YAGNI
-instruction — they are left for whichever resource first needs a container/reference type.
+Python. The scalar map plus ``ref<Model>`` (cross-reference to another declared model, lowered to
+its bare name — the ``priorities`` resource's ``PriorityCreate.name: ref<LocalizedName>``) are
+implemented; ``list<T>``/``map<K,V>`` are declared in the design doc but unused by ``me`` +
+``priorities``, so — per the Task 3 brief's YAGNI instruction — they are left for whichever
+resource first needs a container type.
 """
 
 from __future__ import annotations
@@ -94,6 +96,35 @@ class CliSpec(_Spec):
     documentation: str
 
 
+class ParamSpec(_Spec):
+    """One neutral request parameter — mirrors a v2 ``params:`` entry (§5 design.md).
+
+    ``loc`` is ``path`` | ``query`` (``body`` params are carried by :class:`BodySpec` instead).
+    ``type``/``optional`` feed the same ``_lower_type`` scalar/``ref<Model>`` lowering as
+    :class:`FieldSpec`; an explicit ``default`` wins over the implied one, same as a field.
+    """
+
+    name: str
+    loc: Literal["path", "query"]
+    type: str = "string"
+    optional: bool = False
+    default: str | None = None
+    alias: str | None = None
+    help: str | None = None
+
+
+class BodySpec(_Spec):
+    """The write-body registry entry (§7 design.md) — only the ``TypedModel`` [v1] mode today.
+
+    ``model`` names a hand-written body model already declared in ``models:``; ``dump`` is the
+    source text of the ``model_dump(...)`` keyword arguments the client renders verbatim.
+    """
+
+    strategy: Literal["TypedModel"]
+    model: str
+    dump: str
+
+
 class TestSpec(_Spec):
     """One authored test fixture. All nine ``ir.TestCase`` fields, each with a safe default.
 
@@ -119,6 +150,8 @@ class OperationSpec(_Spec):
     path: str
     operation_id: str = Field(alias="operationId")
     documentation: str | None = None
+    params: list[ParamSpec] = Field(default_factory=list)
+    body: BodySpec | None = None
     responses: dict[int, ResponseSpec]
     mcp: McpSpec
     cli: CliSpec
@@ -150,15 +183,26 @@ class ResourceSpec(_Spec):
 # --------------------------------------------------------------------------- neutral-type lowering
 
 
+_REF_PREFIX = "ref<"
+_REF_SUFFIX = ">"
+
+
 def _lower_type(neutral: str, optional: bool) -> tuple[str, str | None]:
     """Lower one neutral spec type to ``(python_type_string, implied_default)``.
 
     E.g. ``_lower_type("integer", True)`` -> ``("int | None", "None")`` — the golden's
-    ``uid: int | None = None``. The implied default is the Python literal ``"None"`` (as source
-    text) whenever the field is optional; callers only use it when the spec gave no explicit
-    ``default`` of their own.
+    ``uid: int | None = None``. A ``ref<Model>`` neutral type (§2 design.md's cross-reference
+    form) lowers to the bare model name verbatim — ``_lower_type("ref<LocalizedName>", False)``
+    -> ``("LocalizedName", None)`` — the spec convention this loader picked for model-ref fields
+    (over authoring the bare model name directly as ``type:``, so a field's ``type:`` always
+    round-trips through one neutral grammar). The implied default is the Python literal ``"None"``
+    (as source text) whenever the field is optional; callers only use it when the spec gave no
+    explicit ``default`` of their own.
     """
-    python_type = _SCALAR_TYPES[neutral]
+    if neutral.startswith(_REF_PREFIX) and neutral.endswith(_REF_SUFFIX):
+        python_type = neutral[len(_REF_PREFIX) : -len(_REF_SUFFIX)]
+    else:
+        python_type = _SCALAR_TYPES[neutral]
     default = None
     if optional:
         python_type = f"{python_type} | None"
@@ -190,6 +234,22 @@ def _model(spec: ModelSpec) -> ir.Model:
         documentation=spec.documentation,
         config=tuple(spec.config.items()),
     )
+
+
+def _param(spec: ParamSpec) -> ir.Param:
+    python_type, implied_default = _lower_type(spec.type, spec.optional)
+    return ir.Param(
+        name=spec.name,
+        loc=spec.loc,
+        type=python_type,
+        alias=spec.alias,
+        default=spec.default if spec.default is not None else implied_default,
+        help=spec.help,
+    )
+
+
+def _body(spec: BodySpec | None) -> ir.Body | None:
+    return None if spec is None else ir.Body(mode=spec.strategy, model=spec.model, dump=spec.dump)
 
 
 def _require_found(spec: RequireFoundSpec | None) -> ir.RequireFound | None:
@@ -235,6 +295,8 @@ def _operation(spec: OperationSpec) -> ir.Operation:
         method=spec.method,
         path=spec.path,
         operation_id=spec.operation_id,
+        params=tuple(_param(param) for param in spec.params),
+        body=_body(spec.body),
         response_model=_response_model(spec.responses),
         documentation=spec.documentation,
         mcp=_mcp(spec.mcp),

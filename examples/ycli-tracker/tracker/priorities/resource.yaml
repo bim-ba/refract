@@ -1,0 +1,158 @@
+domain: tracker
+resource: priorities
+base_url: https://api.tracker.yandex.net/v3
+security: oauth_token
+module_docs:
+  models: "Pydantic models for Tracker priorities (Priority + PriorityList + typed write bodies)."
+  client: |-
+    Declarative Tracker priorities client (uplink) — transport ONLY.
+
+    NOTE: no ``from __future__ import annotations`` — uplink reads annotations eagerly.
+  mcp: "Tracker priorities FastMCP tools (reads + writes, ARCH-3 honest annotations)."
+  mcp_server: "tracker-priorities"
+  client_class: "Declarative HTTP for ``/priorities`` (list + create + edit)."
+documentation: "Tracker /priorities resource package."
+models:
+  - name: Priority
+    documentation: |-
+      A priority reference (``/priorities`` item).
+
+      The live v3 API carries the display name in ``name`` (``display`` stays null there), so
+      both fields are mapped.
+
+      Example:
+          >>> Priority.model_validate({"key": "normal", "name": "Normal"}).name
+          'Normal'
+    fields:
+      - {name: key, type: string, optional: true}
+      - {name: name, type: string, optional: true}
+      - {name: display, type: string, optional: true}
+  - name: PriorityList
+    kind: root_list
+    item: Priority
+    documentation: |-
+      A bare JSON array of priorities.
+
+      Example:
+          >>> PriorityList.model_validate([{"key": "normal"}]).root[0].key
+          'normal'
+  - name: LocalizedName
+    documentation: |-
+      A localized display name (the ``name`` object) — Russian and/or English text.
+
+      Example:
+          >>> LocalizedName(ru="Низкий", en="Low").model_dump(exclude_none=True)
+          {'ru': 'Низкий', 'en': 'Low'}
+    fields:
+      - {name: ru, type: string, optional: true, description: "Name in Russian."}
+      - {name: en, type: string, optional: true, description: "Name in English."}
+  - name: PriorityCreate
+    documentation: |-
+      Typed request body for ``POST /priorities/`` (create a priority).
+
+      Example:
+          >>> PriorityCreate(key="one", name=LocalizedName(ru="Низкий"), order=60).model_dump(
+          ...     by_alias=True, exclude_none=True
+          ... )
+          {'key': 'one', 'name': {'ru': 'Низкий'}, 'order': 60}
+    fields:
+      - {name: key, type: string, description: "Key of the new priority."}
+      - {name: name, type: "ref<LocalizedName>", description: "Localized display name of the priority."}
+      - {name: order, type: integer, optional: true, description: "Weight controlling the priority's display order in the interface."}
+      - {name: description, type: string, optional: true, description: "Description of the priority."}
+  - name: PriorityUpdate
+    documentation: |-
+      Typed request body for ``PATCH /priorities/{id}?version=`` (edit a priority).
+
+      Only the fields that are set are sent, so omitted fields stay unchanged.
+
+      Example:
+          >>> PriorityUpdate(description="Описание").model_dump(by_alias=True, exclude_none=True)
+          {'description': 'Описание'}
+    fields:
+      - {name: name, type: "ref<LocalizedName>", optional: true, description: "New localized display name of the priority."}
+      - {name: description, type: string, optional: true, description: "New description of the priority."}
+operations:
+  - name: list
+    method: GET
+    path: priorities
+    operationId: priorities_list
+    documentation: |-
+      ``GET /priorities`` → priority listing.
+
+      Example:
+          >>> client = TrackerClient(oauth_token="…", organization_id="…")  # doctest: +SKIP
+          >>> client.priorities.list().root[0].key  # doctest: +SKIP
+          'normal'
+    responses:
+      200: {model: PriorityList}
+    mcp:
+      name: priorities_list
+      safety: RO
+      title: "List Tracker priorities"
+      documentation: "All available issue priorities in the organisation."
+    cli:
+      name: list
+      documentation: "List all Tracker priorities."
+  - name: create
+    method: POST
+    path: priorities/
+    operationId: priorities_create
+    documentation: |-
+      Create a priority from a typed ``PriorityCreate`` body. Returns the new ``Priority``.
+
+      Example:
+          >>> client = TrackerClient(oauth_token="…", organization_id="…")  # doctest: +SKIP
+          >>> client.priorities.create(
+          ...     PriorityCreate(key="one", name=LocalizedName(ru="Низкий"), order=60)
+          ... ).key  # doctest: +SKIP
+          'one'
+    body: {strategy: TypedModel, model: PriorityCreate, dump: "by_alias=True, exclude_none=True"}
+    responses:
+      200: {model: Priority}
+    mcp:
+      name: priorities_create
+      safety: WRITE
+      title: "Create Tracker priority"
+      documentation: |-
+        Create an org-global issue priority.
+
+        CAUTION: priorities are organisation-wide and have no delete endpoint — creation leaves
+        permanent residue. ``key`` is the latin identifier; ``name`` holds the ru/en display names.
+    cli:
+      name: create
+      documentation: "Create a Tracker priority."
+  - name: edit
+    method: PATCH
+    path: priorities/{priority_id}
+    operationId: priorities_edit
+    documentation: |-
+      Edit priority ``priority_id`` from a typed ``PriorityUpdate`` body.
+
+      ``version`` is the current priority version; when set it is sent as ``?version=`` for
+      optimistic locking (the API rejects a stale version with 409).
+
+      Example:
+          >>> client = TrackerClient(oauth_token="…", organization_id="…")  # doctest: +SKIP
+          >>> client.priorities.edit(
+          ...     "one", PriorityUpdate(name=LocalizedName(ru="Низкий")), version=1
+          ... ).key  # doctest: +SKIP
+          'one'
+    params:
+      - {name: priority_id, loc: path, type: string}
+      - {name: version, loc: query, type: integer, optional: true, alias: version}
+    body: {strategy: TypedModel, model: PriorityUpdate, dump: "by_alias=True, exclude_none=True"}
+    responses:
+      200: {model: Priority}
+    mcp:
+      name: priorities_edit
+      safety: WRITE_IDEMPOTENT
+      title: "Edit Tracker priority"
+      documentation: |-
+        Edit an issue priority; only the fields set in ``body`` are changed.
+
+        ``priority_id`` is the numeric id (not the key). Pass ``version`` to guard against
+        concurrent edits (optimistic locking).
+    cli:
+      name: edit
+      documentation: "Edit a Tracker priority."
