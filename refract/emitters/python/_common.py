@@ -23,6 +23,11 @@ def domain_resource_base(res: ir.Resource) -> str:
     return f"{res.domain_title}Resource"
 
 
+def domain_client_class(res: ir.Resource) -> str:
+    """The per-domain transport client class (``tracker`` -> ``TrackerClient``)."""
+    return f"{res.domain_title}Client"
+
+
 def render_doc(text: str | None, indent: str) -> list[str]:
     """Render ``text`` as a one-line triple-quoted docstring block at ``indent`` (``[]`` if absent).
 
