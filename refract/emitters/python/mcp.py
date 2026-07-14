@@ -59,7 +59,8 @@ def _tool(res: ir.Resource, operation: ir.Operation) -> list[str]:
     meta = operation.mcp
     assert meta is not None  # every me operation carries an mcp facet
     guard = meta.require_found
-    assert guard is not None  # me's read tool always declares an empty-result guard
+    if guard is None:
+        raise NotImplementedError("unguarded MCP tools arrive with the resource that needs them")
     annotations = f'{{**{meta.safety}, "title": "{meta.title}"}}'
     decorator = f'@mcp.tool(name="{meta.name}", annotations={annotations}, tags=TAGS)'
     parameter = f"client: {domain_client_class(res)} = Depends({res.domain}_client)"
