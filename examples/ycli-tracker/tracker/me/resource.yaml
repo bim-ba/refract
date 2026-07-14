@@ -39,9 +39,12 @@ operations:
       name: get
       documentation: "Print the authenticated user (a safe auth probe)."
     tests:
-      # PRELIMINARY (Task 3 scope) — Task 6 finalizes these fixtures/asserts so the tests
-      # emitter reproduces ycli's tests/yandex/tracker/test_me.py byte-for-byte. This block only
-      # needs to load validly into tuple[ir.TestCase, ...] today; see task-3-report.md.
+      # Authored fixtures + asserts for the strategy-driven auto-suite (refract/emitters/python/
+      # tests.py). The client/cli/mcp cases carry real, non-tautological asserts (referencing each
+      # kind's binding var — me/res/result). The two mcp_guard cases are STRUCTURAL: the emitter
+      # wraps the tool call in `with pytest.raises(ToolError)`, so they carry no asserts — status
+      # 401 is the auth guard, status 200 the require_found empty-response guard (op.mcp.require_found
+      # above). Reproduces ycli's real tests/yandex/tracker/test_me.py byte-for-byte.
       - {name: me_client_get, kind: client, http_method: GET, path: myself, status: 200,
          response_json: {uid: 42, login: alice, display: "Alice A.", email: alice@example.com},
          call: "TrackerClient(oauth_token=\"t\", organization_id=\"o\").me.get()",
@@ -53,6 +56,6 @@ operations:
          response_json: {uid: 42, login: alice, display: "Alice A.", email: alice@example.com},
          asserts: ["result.data.login == \"alice\""]}
       - {name: me_mcp_auth_guard, kind: mcp_guard, http_method: GET, path: myself, status: 401,
-         response_json: {}, asserts: ["True"]}
+         response_json: {}}
       - {name: me_mcp_empty_response_guard, kind: mcp_guard, http_method: GET, path: myself,
-         status: 200, response_json: {}, asserts: ["True"]}
+         status: 200, response_json: {}}
