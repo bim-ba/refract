@@ -7,26 +7,7 @@ real loaded IR, not reimplemented here. ``me``'s own loader tests (``test_loader
 shape.
 """
 
-from pathlib import Path
-
-import pytest
-
 from refract import ir
-from refract.loader import load
-
-_PRIORITIES_SPEC = (
-    Path(__file__).resolve().parent.parent
-    / "examples"
-    / "ycli-tracker"
-    / "tracker"
-    / "priorities"
-    / "resource.yaml"
-)
-
-
-@pytest.fixture
-def priorities_resource() -> ir.Resource:
-    return load(_PRIORITIES_SPEC)
 
 
 def test_loads_priorities_resource(priorities_resource):
