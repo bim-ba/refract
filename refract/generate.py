@@ -29,18 +29,29 @@ __all__ = ["check", "plan", "render_resource", "write"]
 def render_resource(res: ir.Resource) -> dict[str, str]:
     """Every output file for one resource, keyed by path relative to the top-level ``out/`` dir.
 
-    The four surfaces + the package ``__init__.py`` key under ``<domain>/<resource>/...``; the
+    Data-presence surface-gating: ``__init__.py``, ``models.py`` and ``client.py`` are always
+    emitted (a resource always has documentation, models, and operations); the remaining surfaces
+    are gated on the resource actually carrying data for them — ``cli.py`` only when some operation
+    has a ``cli`` facet, ``mcp.py`` only when some operation has an ``mcp`` facet, and the test file
+    only when some operation authored ``tests``. So ``me`` (cli + mcp + tests facets) emits all six
+    files while ``priorities`` (mcp facets only) emits exactly four.
+
+    The always-on surfaces + the package ``__init__.py`` key under ``<domain>/<resource>/...``; the
     test file keys separately under ``tests/<domain>/test_<resource>.py``.
     """
     base = f"{res.domain}/{res.resource}"
-    return {
+    files = {
         f"{base}/__init__.py": f'"""{res.documentation}"""\n',
         f"{base}/models.py": models.emit(res),
         f"{base}/client.py": client.emit(res),
-        f"{base}/cli.py": cli.emit(res),
-        f"{base}/mcp.py": mcp.emit(res),
-        f"tests/{res.domain}/test_{res.resource}.py": tests.emit(res),
     }
+    if any(op.cli is not None for op in res.operations):
+        files[f"{base}/cli.py"] = cli.emit(res)
+    if any(op.mcp is not None for op in res.operations):
+        files[f"{base}/mcp.py"] = mcp.emit(res)
+    if any(op.tests for op in res.operations):
+        files[f"tests/{res.domain}/test_{res.resource}.py"] = tests.emit(res)
+    return files
 
 
 def plan(specs_dir: Path, out_dir: Path) -> dict[Path, str]:

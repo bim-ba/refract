@@ -154,7 +154,7 @@ class OperationSpec(_Spec):
     body: BodySpec | None = None
     responses: dict[int, ResponseSpec]
     mcp: McpSpec
-    cli: CliSpec
+    cli: CliSpec | None = None
     tests: list[TestSpec] = Field(default_factory=list)
     handler: str | None = None
 
@@ -266,8 +266,8 @@ def _mcp(spec: McpSpec) -> ir.McpMeta:
     )
 
 
-def _cli(spec: CliSpec) -> ir.CliMeta:
-    return ir.CliMeta(name=spec.name, documentation=spec.documentation)
+def _cli(spec: CliSpec | None) -> ir.CliMeta | None:
+    return None if spec is None else ir.CliMeta(name=spec.name, documentation=spec.documentation)
 
 
 def _test(spec: TestSpec) -> ir.TestCase:

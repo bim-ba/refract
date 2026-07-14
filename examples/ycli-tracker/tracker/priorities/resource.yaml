@@ -91,9 +91,6 @@ operations:
       safety: RO
       title: "List Tracker priorities"
       documentation: "All available issue priorities in the organisation."
-    cli:
-      name: list
-      documentation: "List all Tracker priorities."
   - name: create
     method: POST
     path: priorities/
@@ -119,9 +116,6 @@ operations:
 
         CAUTION: priorities are organisation-wide and have no delete endpoint — creation leaves
         permanent residue. ``key`` is the latin identifier; ``name`` holds the ru/en display names.
-    cli:
-      name: create
-      documentation: "Create a Tracker priority."
   - name: edit
     method: PATCH
     path: priorities/{priority_id}
@@ -153,6 +147,3 @@ operations:
 
         ``priority_id`` is the numeric id (not the key). Pass ``version`` to guard against
         concurrent edits (optimistic locking).
-    cli:
-      name: edit
-      documentation: "Edit a Tracker priority."
