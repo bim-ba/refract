@@ -29,10 +29,19 @@ def domain_client_class(res: ir.Resource) -> str:
 
 
 def render_doc(text: str | None, indent: str) -> list[str]:
-    """Render ``text`` as a one-line triple-quoted docstring block at ``indent`` (``[]`` if absent).
+    """Render ``text`` as a triple-quoted docstring block (list of lines) at ``indent``.
 
-    Returns a single-element list so callers can ``+=`` / splat it straight into their line
-    buffer, or an empty list when ``text`` is absent. Multi-line docstring shaping arrives with
-    the first resource whose docs span several lines.
+    Returns an empty list when ``text`` is absent (so callers can ``+=`` / splat it straight into
+    their line buffer). A one-physical-line doc becomes a single triple-quoted line
+    (``{indent}\"\"\"{line}\"\"\"``); a multi-line doc opens on the first line
+    (``{indent}\"\"\"{line0}``), re-indents every non-blank continuation line to ``indent`` (blank
+    lines stay empty), and closes the quotes on their own ``{indent}\"\"\"`` line — the shape ruff
+    keeps (it does not re-flow an already-split closing quote).
     """
-    return [f'{indent}"""{text}"""'] if text else []
+    if not text:
+        return []
+    lines = text.split("\n")
+    if len(lines) == 1:
+        return [f'{indent}"""{text}"""']
+    body = [f"{indent}{line}" if line else "" for line in lines[1:]]
+    return [f'{indent}"""{lines[0]}', *body, f'{indent}"""']

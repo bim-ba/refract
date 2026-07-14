@@ -10,24 +10,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from refract.emitters.python._common import render_doc
 from refract.format import ruff_format
 
 if TYPE_CHECKING:
     from refract import ir
-
-
-def _render_docstring(text: str, indent: str) -> list[str]:
-    """Render ``text`` as a triple-quoted docstring block at ``indent``.
-
-    A one-line doc stays on a single line; a multi-line doc opens on the first line, indents every
-    non-blank continuation line to ``indent``, and closes the quotes on their own line (the shape
-    ruff keeps -- ruff does not re-flow an already-glued closing quote).
-    """
-    lines = text.split("\n")
-    if len(lines) == 1:
-        return [f'{indent}"""{text}"""']
-    body = [f"{indent}{line}" if line else "" for line in lines[1:]]
-    return [f'{indent}"""{lines[0]}', *body, f'{indent}"""']
 
 
 def _render_field(field: ir.Field) -> str:
@@ -50,9 +37,9 @@ def _render_model(model: ir.Model) -> list[str]:
     """The lines for one model class — an ``object`` ``APIModel`` or a ``root_list``."""
     if model.kind == "root_list":
         lines = [f"class {model.name}(RootModel[list[{model.item}]]):"]
-        return lines + _render_docstring(model.documentation or "", "    ")
+        return lines + render_doc(model.documentation, "    ")
     lines = [f"class {model.name}(APIModel):"]
-    lines += _render_docstring(model.documentation or "", "    ")
+    lines += render_doc(model.documentation, "    ")
     lines.append("")
     lines += [_render_field(field) for field in model.fields]
     return lines
@@ -72,7 +59,7 @@ def _pydantic_imports(res: ir.Resource) -> list[str]:
 def emit(res: ir.Resource) -> str:
     """Render the whole ``models.py`` for ``res`` (ruff-formatted)."""
     out = [
-        *_render_docstring(res.module_docs.models or "", ""),
+        *render_doc(res.module_docs.models, ""),
         "",
         "from __future__ import annotations",
     ]
