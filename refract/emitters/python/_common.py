@@ -2,15 +2,33 @@
 
 from __future__ import annotations
 
+import builtins
+import keyword
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from refract import ir
 
+# Names a module-level ``def`` would shadow at module scope — Python builtins (``list``) and
+# keywords (``import``). An operation named after one takes a trailing underscore (PEP 8).
+_SHADOWED_NAMES = frozenset(dir(builtins)) | frozenset(keyword.kwlist)
+
 
 def pascal(name: str) -> str:
     """``snake_case`` -> ``PascalCase`` (``comments`` -> ``Comments``, ``me`` -> ``Me``)."""
     return "".join(part.capitalize() for part in name.split("_"))
+
+
+def function_name(name: str) -> str:
+    """``operation.name`` as a safe module-level ``def`` identifier (``list`` -> ``list_``).
+
+    A ``def`` binds its name at module scope, so an operation named after a Python builtin or
+    keyword (``list``) would shadow it there; those names take a trailing underscore (PEP 8).
+    Every other name is returned unchanged (``get`` -> ``get``, ``create`` -> ``create``).
+    """
+    if name in _SHADOWED_NAMES:
+        return f"{name}_"
+    return name
 
 
 def resource_client_class(res: ir.Resource) -> str:
