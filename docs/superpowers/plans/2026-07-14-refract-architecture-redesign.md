@@ -5837,7 +5837,7 @@ _CONFIG = ir.ClientConfig(
     name="demo",
     server=ir.Server(base_url="https://api.demo/v1"),
     auth=(("token", ir.HeaderAuth(
-        header="Authorization", template="Bearer {oauth_token}",
+        header="Authorization", template="Bearer {token}",
         inputs=(ir.AuthInput(name="token", env="DEMO_TOKEN"),))),),
 )
 
