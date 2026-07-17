@@ -10,3 +10,10 @@ class _View(BaseModel):
     """
 
     model_config = ConfigDict(frozen=True)
+
+
+class RequestsPageView(_View):
+    doc_block: tuple[str, ...] = ()
+    header_lines: tuple[str, ...] = ()
+    import_lines: tuple[str, ...] = ()
+    functions: tuple[str, ...] = ()
