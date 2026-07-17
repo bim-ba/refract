@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 from refract.emitters.api import Import
-from refract.emitters.python.views import ClientPageView, RequestsPageView
+from refract.emitters.python.views import ClientPageView, ModelsPageView, RequestsPageView
+from refract.ir import ObjectModel, RootListModel
 
 if TYPE_CHECKING:
     from refract import ir
@@ -189,4 +190,100 @@ def resolve_client(
         class_header=f"class {naming.class_name(res.resource, 'Client')}({base_class}):",
         class_doc_lines=docstrings.render(res.module_docs.client_class, "    "),
         methods=tuple(methods),
+    )
+
+
+def _shared_models_module(ctx: EmitContext) -> str:
+    """The shared base module (``APIModel``/``require_found``) - one level above the domain.
+
+    ``ycli.yandex.tracker`` -> ``ycli.yandex.models`` (derived, not hardcoded)."""
+    return f"{ctx.package_root.rsplit('.', 1)[0]}.models"
+
+
+def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Import]]:
+    """One model field line: ``name: Type = default`` or ``Field(...)`` for a described field.
+
+    The type renders from NeutralType via TypeMapper (the key port shift); the default is the
+    explicit ``field.default`` or, absent that, ``type_mapper.null_default(...)`` (implied-null).
+    A described field renders ``Field(...)``: optional carries ``default=<default>`` before
+    ``description=``, required carries only ``description=``. Long calls stay one line - ruff
+    wraps them.
+    """
+    rendered = type_mapper.render(field.type, optional=field.optional)
+    imports = list(rendered.imports)
+    default = (
+        field.default
+        if field.default is not None
+        else type_mapper.null_default(field.type, optional=field.optional)
+    )
+    if not field.description:
+        return f"    {field.name}: {rendered.text} = {default}", imports
+    arguments: list[str] = []
+    if default is not None:
+        arguments.append(f"default={default}")
+    arguments.append(f'description="{field.description}"')
+    return f"    {field.name}: {rendered.text} = Field({', '.join(arguments)})", imports
+
+
+def _model_class(
+    model: ir.Model, type_mapper: TypeMapper, docstrings: Docstrings
+) -> tuple[str, list[Import]]:
+    """The finished source for one model class - dispatches over the ``Model`` union.
+
+    ``RootListModel`` -> ``RootModel[list[Item]]`` with just a docstring; ``ObjectModel`` ->
+    docstring, blank line, then fields. ``model.item`` is the model name (a str, not a
+    NeutralType) and renders verbatim. ``assert_never`` keeps the union exhaustive - a new
+    variant is a type error, not a silent no-op.
+    """
+    match model:
+        case RootListModel():
+            lines = [
+                f"class {model.name}(RootModel[list[{model.item}]]):",
+                *docstrings.render(model.documentation, "    "),
+            ]
+            return "\n".join(lines), []
+        case ObjectModel():
+            lines = [f"class {model.name}(APIModel):"]
+            lines += docstrings.render(model.documentation, "    ")
+            lines.append("")
+            imports: list[Import] = []
+            for field in model.fields:
+                decl, field_imports = _model_field(field, type_mapper)
+                lines.append(decl)
+                imports += field_imports
+            return "\n".join(lines), imports
+        case _:
+            assert_never(model)
+
+
+def resolve_models(
+    res: ir.Resource,
+    ctx: EmitContext,
+    naming: Naming,
+    type_mapper: TypeMapper,
+    docstrings: Docstrings,
+) -> ModelsPageView:
+    """IR -> ModelsPageView: module docstring, imports (APIModel + pydantic + those collected
+    from types), finished classes. ``APIModel`` is always imported (as in the previous emitter).
+    """
+    imports: list[Import] = [Import(_shared_models_module(ctx), "APIModel")]
+    if any(
+        field.description
+        for model in res.models
+        if isinstance(model, ObjectModel)
+        for field in model.fields
+    ):
+        imports.append(Import("pydantic", "Field"))
+    if any(isinstance(model, RootListModel) for model in res.models):
+        imports.append(Import("pydantic", "RootModel"))
+    classes: list[str] = []
+    for model in res.models:
+        text, class_imports = _model_class(model, type_mapper, docstrings)
+        classes.append(text)
+        imports += class_imports
+    return ModelsPageView(
+        doc_block=docstrings.render(res.module_docs.models, ""),
+        header_lines=("from __future__ import annotations",),
+        import_lines=render_imports(tuple(imports)),
+        classes=tuple(classes),
     )

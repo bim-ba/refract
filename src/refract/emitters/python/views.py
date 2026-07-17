@@ -26,3 +26,10 @@ class ClientPageView(_View):
     class_header: str
     class_doc_lines: tuple[str, ...] = ()
     methods: tuple[str, ...] = ()
+
+
+class ModelsPageView(_View):
+    doc_block: tuple[str, ...] = ()
+    header_lines: tuple[str, ...] = ()
+    import_lines: tuple[str, ...] = ()
+    classes: tuple[str, ...] = ()
