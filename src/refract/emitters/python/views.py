@@ -33,3 +33,10 @@ class ModelsPageView(_View):
     header_lines: tuple[str, ...] = ()
     import_lines: tuple[str, ...] = ()
     classes: tuple[str, ...] = ()
+
+
+class CliPageView(_View):
+    doc_block: tuple[str, ...] = ()
+    header_lines: tuple[str, ...] = ()
+    import_lines: tuple[str, ...] = ()
+    blocks: tuple[str, ...] = ()

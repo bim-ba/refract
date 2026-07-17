@@ -4,7 +4,12 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, assert_never
 
 from refract.emitters.api import Import
-from refract.emitters.python.views import ClientPageView, ModelsPageView, RequestsPageView
+from refract.emitters.python.views import (
+    ClientPageView,
+    CliPageView,
+    ModelsPageView,
+    RequestsPageView,
+)
 from refract.ir import ObjectModel, RootListModel
 
 if TYPE_CHECKING:
@@ -286,4 +291,63 @@ def resolve_models(
         header_lines=("from __future__ import annotations",),
         import_lines=render_imports(tuple(imports)),
         classes=tuple(classes),
+    )
+
+
+_GROUP_DOC = "Group anchor - forces subcommand dispatch (no eager DI, so --help stays cred-free)."
+
+
+def _cli_command(res: ir.Resource, op: ir.Operation, docstrings: Docstrings) -> str:
+    """The finished text for one passthrough ``@app.command()`` leaf.
+
+    Param-less (mirrors the current `me` emitter): resolves ``AppContext`` and forwards the call
+    to ``app_ctx.<domain>.<resource>.<op>()`` through ``Serializer.serialize``. The command name
+    is author-controlled via ``op.cli.name`` (not necessarily ``op.name``).
+    """
+    meta = op.cli
+    if meta is None:  # resolve_cli only calls this for cli-faceted ops - fail loud if that changes
+        raise ValueError(f"{op.name}: operation has no cli facet")
+    call = f"app_ctx.{res.domain}.{res.resource}.{op.name}()"
+    lines = [
+        "@app.command()",
+        f"def {meta.name}(ctx: typer.Context) -> None:",
+        *docstrings.render(meta.documentation, "    "),
+        "    app_ctx = AppContext.from_typer_context(ctx)",
+        f"    Serializer.serialize({call}, app_ctx.strategy, app_ctx.console)",
+    ]
+    return "\n".join(lines)
+
+
+def resolve_cli(
+    res: ir.Resource,
+    ctx: EmitContext,
+    naming: Naming,
+    type_mapper: TypeMapper,
+    docstrings: Docstrings,
+) -> CliPageView:
+    """IR -> CliPageView: module docstring, fixed imports, body = group+callback then commands."""
+    group_block = "\n".join(
+        [
+            f'app = typer.Typer(name="{res.resource}", '
+            f'help="{res.module_docs.cli_group_help}", no_args_is_help=True)',
+            "",
+            "",
+            "@app.callback()",
+            "def _group() -> None:",
+            f'    """{_GROUP_DOC}"""',
+        ]
+    )
+    blocks = [group_block]
+    for op in res.operations:
+        if op.cli is not None:
+            blocks.append(_cli_command(res, op, docstrings))
+    return CliPageView(
+        doc_block=docstrings.render(res.module_docs.cli, ""),
+        header_lines=("from __future__ import annotations",),
+        import_lines=(
+            "import typer",
+            "from ycli.cli.context import AppContext",
+            "from ycli.cli.output import Serializer",
+        ),
+        blocks=tuple(blocks),
     )
