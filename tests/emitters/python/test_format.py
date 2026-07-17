@@ -1,5 +1,6 @@
 import pytest
 
+from refract.emitters.python import format as format_module
 from refract.emitters.python.format import RuffFormatter
 
 f = RuffFormatter()
@@ -22,3 +23,12 @@ def test_sorts_imports():
 def test_syntax_error_raises_runtime_error():
     with pytest.raises(RuntimeError):
         f.format("def (:\n")  # invalid syntax -> ruff exits non-zero
+
+
+def test_ruff_missing_from_path_raises_runtime_error(monkeypatch):
+    def _raise(*args, **kwargs):
+        raise FileNotFoundError("ruff")
+
+    monkeypatch.setattr(format_module.subprocess, "run", _raise)
+    with pytest.raises(RuntimeError, match="ruff not found on PATH"):
+        f.format("x = 1\n")

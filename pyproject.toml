@@ -39,7 +39,7 @@ packages = ["src/refract"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["behavioral: opt-in tests that import + run emitted code (slow; excluded by default)"]
-addopts = "--strict-markers --import-mode=importlib --cov=refract --cov-report=term-missing --cov-fail-under=0 -m 'not behavioral'"
+addopts = "--strict-markers --import-mode=importlib --cov=refract --cov-report=term-missing --cov-fail-under=100 -m 'not behavioral'"
 
 [tool.coverage.run]
 source = ["src/refract"]
@@ -50,7 +50,17 @@ exclude_also = [
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
-    "\\.\\.\\.",
+    # end-anchored: matches a stub body ("    ..." or "def f(): ...") but NOT an embedded
+    # ellipsis inside a variadic type hint like "tuple[ir.Resource, ...]" (always followed by
+    # a closing bracket on the same line) - a bare "\.\.\." substring match would wrongly
+    # exclude the whole enclosing function's body whenever its signature has such a hint,
+    # since coverage.py propagates a clause-header exclusion to the entire clause.
+    "\\.\\.\\.\\s*$",
+    "assert_never",
+    # the bare wildcard match-arm header pairs 1:1 with `assert_never` in this codebase (verified:
+    # only 3 occurrences, all exhaustive-union fallthroughs) - excluded so the unreachable-by-
+    # construction case-header line doesn't count separately from its already-excluded body.
+    "case _:",
 ]
 
 [tool.ruff]

@@ -73,6 +73,58 @@ def test_load_missing_file_raises_spec_error():
         SpecLoader.load(Path("/nonexistent/resource.yaml"))
 
 
+def test_load_client_config_with_single_header_auth(tmp_path: Path):
+    client_yaml = tmp_path / "client.yaml"
+    client_yaml.write_text(
+        """
+name: widgets
+server:
+  base_url: https://api.widgets.example/v1
+auth:
+  bearer_token:
+    kind: header
+    header: Authorization
+    template: "Bearer {token}"
+    inputs:
+      token: {env: WIDGETS_TOKEN}
+""",
+        encoding="utf-8",
+    )
+    config = SpecLoader.load_client_config(client_yaml)
+    name, scheme = config.auth[0]
+    assert name == "bearer_token"
+    assert isinstance(scheme, ir.HeaderAuth)
+    assert scheme.header == "Authorization"
+    assert scheme.template == "Bearer {token}"
+    assert tuple((i.name, i.env) for i in scheme.inputs) == (("token", "WIDGETS_TOKEN"),)
+
+
+def test_load_non_mapping_top_level_raises_spec_error(tmp_path: Path):
+    resource_yaml = tmp_path / "resource.yaml"
+    resource_yaml.write_text("- not\n- a\n- mapping\n", encoding="utf-8")
+    with pytest.raises(SpecError, match="top level must be a mapping"):
+        SpecLoader.load(resource_yaml)
+
+
+def test_load_client_config_validation_error_raises_spec_error(tmp_path: Path):
+    client_yaml = tmp_path / "client.yaml"
+    client_yaml.write_text(
+        """
+name: widgets
+server:
+  base_url: https://api.widgets.example/v1
+auth:
+  bearer_token:
+    kind: header
+    header: Authorization
+    # missing required 'template' and 'inputs' keys -> pydantic ValidationError
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match="client config failed validation"):
+        SpecLoader.load_client_config(client_yaml)
+
+
 def test_root_list_without_item_raises_spec_error(tmp_path: Path):
     resource_yaml = tmp_path / "resource.yaml"
     resource_yaml.write_text(

@@ -23,6 +23,14 @@ from refract.spec.loader import SpecError, parse_neutral_type
                 key=ScalarType(scalar="string"), value=ListType(item=ScalarType(scalar="integer"))
             ),
         ),
+        (
+            # nested generic as the KEY (not the value): the top-level comma sits AFTER a nested
+            # "<...>" span, exercising the bracket-depth-aware split in `_split_top_comma`.
+            "map<list<string>,integer>",
+            MapType(
+                key=ListType(item=ScalarType(scalar="string")), value=ScalarType(scalar="integer")
+            ),
+        ),
     ],
 )
 def test_parses(text, expected):
