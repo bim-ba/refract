@@ -1,5 +1,38 @@
-"""Shared pytest fixtures for the ``refract`` test suite.
+from pathlib import Path
 
-Stripped of the old loader-dependent fixtures during the Phase 0 clean-slate reset (the
-fixtures required ``refract.loader``, which was deleted); rewritten from scratch in Phase 2.
-"""
+import pytest
+
+from refract import ir
+from refract.spec import SpecLoader
+
+_EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "ycli-tracker"
+
+
+@pytest.fixture
+def me_spec_path() -> Path:
+    return _EXAMPLES / "tracker" / "me" / "resource.yaml"
+
+
+@pytest.fixture
+def me_resource(me_spec_path: Path) -> ir.Resource:
+    return SpecLoader.load(me_spec_path)
+
+
+@pytest.fixture
+def priorities_spec_path() -> Path:
+    return _EXAMPLES / "tracker" / "priorities" / "resource.yaml"
+
+
+@pytest.fixture
+def priorities_resource(priorities_spec_path: Path) -> ir.Resource:
+    return SpecLoader.load(priorities_spec_path)
+
+
+@pytest.fixture
+def client_config_path() -> Path:
+    return _EXAMPLES / "client.yaml"
+
+
+@pytest.fixture
+def client_config(client_config_path: Path) -> ir.ClientConfig:
+    return SpecLoader.load_client_config(client_config_path)
