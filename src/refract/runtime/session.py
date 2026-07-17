@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypeVar
 
+from pydantic import BaseModel
+
 if TYPE_CHECKING:
     import httpx
 
     from refract.runtime.request import Request
 
-T = TypeVar("T")
+T = TypeVar("T", bound=BaseModel)
 
 
 class Session:
@@ -30,4 +32,4 @@ class Session:
         # T is unbound (Request is transport-agnostic, not pydantic-specific); response_model is
         # expected to expose model_validate() by convention (a pydantic BaseModel in practice).
         model = request.response_model
-        return model.model_validate(response.json())  # ty: ignore[unresolved-attribute]
+        return model.model_validate(response.json())
