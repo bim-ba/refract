@@ -1773,7 +1773,7 @@ def test_client_config_node_parses_multi_header_auth():
             "oauth_token": {
                 "kind": "multi_header",
                 "headers": {"Authorization": "OAuth {oauth_token}", "X-Org-Id": "{organization_id}"},
-                "inputs": {"token": {"env": "YANDEX_ID_OAUTH_TOKEN"},
+                "inputs": {"oauth_token": {"env": "YANDEX_ID_OAUTH_TOKEN"},
                            "organization_id": {"env": "YANDEX_ID_ORGANIZATION_ID"}},
             }
         },
@@ -1782,7 +1782,7 @@ def test_client_config_node_parses_multi_header_auth():
     scheme = node.auth["oauth_token"]
     assert scheme.kind == "multi_header"                        # discriminated on `kind`
     assert scheme.headers["Authorization"] == "OAuth {oauth_token}"   # still a MAPPING at the node layer
-    assert scheme.inputs["token"].env == "YANDEX_ID_OAUTH_TOKEN"
+    assert scheme.inputs["oauth_token"].env == "YANDEX_ID_OAUTH_TOKEN"
 
 
 def test_client_config_rejects_unknown_auth_kind():
@@ -2076,7 +2076,7 @@ def test_loads_tracker_client_config():
         ("X-Org-Id", "{organization_id}"),
     )
     assert tuple((i.name, i.env) for i in scheme.inputs) == (
-        ("token", "YANDEX_ID_OAUTH_TOKEN"),
+        ("oauth_token", "YANDEX_ID_OAUTH_TOKEN"),
         ("organization_id", "YANDEX_ID_ORGANIZATION_ID"),
     )
 ```
