@@ -56,3 +56,12 @@ class TestsPageView(_View):
     import_lines: tuple[str, ...] = ()
     constants: tuple[str, ...] = ()
     tests: tuple[str, ...] = ()
+
+
+class RootClientPageView(_View):
+    doc_block: tuple[str, ...] = ()
+    header_lines: tuple[str, ...] = ()
+    import_lines: tuple[str, ...] = ()
+    class_header: str
+    class_doc_lines: tuple[str, ...] = ()
+    methods: tuple[str, ...] = ()
