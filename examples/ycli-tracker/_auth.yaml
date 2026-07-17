@@ -1,5 +1,0 @@
-auth:
-  oauth_token:
-    strategy: HeaderToken
-    headers: {Authorization: "OAuth {token}", X-Org-Id: "{organization_id}"}
-    secrets: {token: env:YANDEX_ID_OAUTH_TOKEN, organization_id: env:YANDEX_ID_ORGANIZATION_ID}

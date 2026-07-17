@@ -1,6 +1,5 @@
 domain: tracker
 resource: priorities
-base_url: https://api.tracker.yandex.net/v3
 security: oauth_token
 module_docs:
   models: "Pydantic models for Tracker priorities (Priority + PriorityList + typed write bodies)."

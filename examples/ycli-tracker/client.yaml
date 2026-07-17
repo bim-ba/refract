@@ -1,0 +1,13 @@
+name: tracker
+server:
+  base_url: https://api.tracker.yandex.net/v3
+default_headers: {}
+auth:
+  oauth_token:
+    kind: multi_header
+    headers:
+      Authorization: "OAuth {oauth_token}"
+      X-Org-Id: "{organization_id}"
+    inputs:
+      oauth_token: {env: YANDEX_ID_OAUTH_TOKEN}
+      organization_id: {env: YANDEX_ID_ORGANIZATION_ID}
