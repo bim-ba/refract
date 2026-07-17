@@ -16,5 +16,5 @@ def test_register_and_get(monkeypatch):
 
 def test_unknown_backend_raises(monkeypatch):
     monkeypatch.setattr(registry, "_BACKENDS", {})
-    with pytest.raises(registry.UnknownBackend):
+    with pytest.raises(registry.UnknownBackendError):
         registry.get_backend("nope")  # lazy import of refract.emitters.nope.backend fails

@@ -8,12 +8,12 @@ if TYPE_CHECKING:
 
     from refract.emitters.api import LanguageBackend
 
-__all__ = ["UnknownBackend", "backend", "get_backend"]
+__all__ = ["UnknownBackendError", "backend", "get_backend"]
 
 _BACKENDS: dict[str, Callable[[], LanguageBackend]] = {}
 
 
-class UnknownBackend(Exception):  # noqa: N818 -- name fixed by the plugin contract, not an Error
+class UnknownBackendError(Exception):
     """No backend registered (and none importable) under this language name."""
 
 
@@ -33,7 +33,9 @@ def get_backend(name: str) -> LanguageBackend:
         try:
             importlib.import_module(f"refract.emitters.{name}.backend")
         except ModuleNotFoundError as error:
-            raise UnknownBackend(f"no backend for language {name!r}") from error
+            raise UnknownBackendError(f"no backend for language {name!r}") from error
     if name not in _BACKENDS:
-        raise UnknownBackend(f"module refract.emitters.{name}.backend did not register {name!r}")
+        raise UnknownBackendError(
+            f"module refract.emitters.{name}.backend did not register {name!r}"
+        )
     return _BACKENDS[name]()

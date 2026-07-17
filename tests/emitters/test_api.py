@@ -30,7 +30,7 @@ def _resource() -> ir.Resource:
 def test_value_objects_are_frozen():
     frag = Fragment(lines=("a", "b"), imports=(Import("m", "N"),))
     assert frag.lines == ("a", "b")
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         frag.lines = ()  # frozen dataclass
 
 

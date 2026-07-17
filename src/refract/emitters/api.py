@@ -40,7 +40,9 @@ class EmitContext:
     """Per-generation config beyond the resource itself."""
 
     package_root: str  # where runtime/base/models live, e.g. "ycli.yandex.tracker"
-    config: ir.ClientConfig  # server (base_url), default_headers, auth schemes (per-API glue)
+    config: ir.ClientConfig | None = None  # per-API glue; only tests (base_url) + root_client
+    # read it; per-resource surfaces (requests/client/models/cli/mcp/package) ignore it, hence
+    # the None default.
 
 
 # ---- 5 injected strategies (ABCs) ----
