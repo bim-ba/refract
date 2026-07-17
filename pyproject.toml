@@ -76,8 +76,11 @@ ignore = ["ANN401"]
 [tool.ruff.lint.isort]
 known-first-party = ["refract"]
 
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = ["pydantic.BaseModel"]
+
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["N802", "ANN"]
+"tests/**/*.py" = ["N802", "ANN", "A002", "B008"]
 
 [tool.ty.src]
 # See the ruff extend-exclude note: examples/ is external golden source (imports ycli/uplink,

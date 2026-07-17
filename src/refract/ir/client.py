@@ -10,7 +10,7 @@ class _Client(BaseModel):
 
 
 class Server(_Client):
-    """Fixed base URL for the walking skeleton; TemplatedServer(variables) grows later (ось 'server')."""
+    """Fixed base URL for the walking skeleton; a templated server (variables) grows later."""
 
     base_url: str
 
