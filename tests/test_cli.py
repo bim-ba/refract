@@ -17,15 +17,11 @@ def test_no_flag_prints_plan_without_writing(tmp_path):
 
 def test_write_then_check_roundtrips(tmp_path):
     out = tmp_path / "out"
-    write_res = runner.invoke(
-        app, ["generate", "--specs", str(_EX), "--out", str(out), "--write"]
-    )
+    write_res = runner.invoke(app, ["generate", "--specs", str(_EX), "--out", str(out), "--write"])
     assert write_res.exit_code == 0
     assert (out / "tracker" / "me" / "_requests.py").exists()
-    assert (out / "tracker" / "client.py").exists()   # root-client glue written too
-    check_res = runner.invoke(
-        app, ["generate", "--specs", str(_EX), "--out", str(out), "--check"]
-    )
+    assert (out / "tracker" / "client.py").exists()  # root-client glue written too
+    check_res = runner.invoke(app, ["generate", "--specs", str(_EX), "--out", str(out), "--check"])
     assert check_res.exit_code == 0
 
 
@@ -35,7 +31,8 @@ def test_spec_error_exits_2(tmp_path):
     bad.mkdir(parents=True)
     (bad / "resource.yaml").write_text("domain: t\nunknown_key: 1\n", encoding="utf-8")
     (root / "client.yaml").write_text(
-        "name: t\nserver:\n  base_url: https://x/v1\nauth: {}\n", encoding="utf-8")
+        "name: t\nserver:\n  base_url: https://x/v1\nauth: {}\n", encoding="utf-8"
+    )
     res = runner.invoke(app, ["generate", "--specs", str(root), "--out", str(tmp_path / "out")])
     assert res.exit_code == 2
 

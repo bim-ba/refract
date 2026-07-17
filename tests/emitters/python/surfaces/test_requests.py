@@ -10,8 +10,10 @@ def _emit(res):
     from refract.emitters.python.naming import PythonNaming
     from refract.emitters.python.surfaces.requests import RequestsSurface
     from refract.emitters.python.types import PythonTypeMapper
-    surface = RequestsSurface(PythonNaming(), PythonTypeMapper(), PythonDocstrings(),
-                              make_environment())
+
+    surface = RequestsSurface(
+        PythonNaming(), PythonTypeMapper(), PythonDocstrings(), make_environment()
+    )
     return RuffFormatter().format(surface.emit(res, CTX))
 
 
@@ -25,13 +27,13 @@ def test_me_requests(me_resource):
 
 def test_priorities_requests(priorities_resource):
     out = _emit(priorities_resource)
-    assert "def list_() -> Request[PriorityList]:" in out            # module-level shadow guard
+    assert "def list_() -> Request[PriorityList]:" in out  # module-level shadow guard
     assert "def create(body: PriorityCreate) -> Request[Priority]:" in out
     # edit's signature is >100 cols -> ruff hug-wraps it; assert the wrapped params line, not a
     # contiguous single-line `def edit(...)` (which ruff splits onto its own lines).
     assert "def edit(" in out
     assert "priority_id: str, body: PriorityUpdate, *, version: int | None = None" in out
     # write path renders model_dump flags straight off the ir.Body value object (by_alias/omit_none)
-    assert 'json_body=body.model_dump(by_alias=True, exclude_none=True)' in out
+    assert "json_body=body.model_dump(by_alias=True, exclude_none=True)" in out
     assert 'path=f"priorities/{priority_id}"' in out
     assert 'query={"version": version}' in out

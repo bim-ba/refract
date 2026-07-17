@@ -49,8 +49,10 @@ def indent_lines(lines: tuple[str, ...], prefix: str) -> tuple[str, ...]:
 def param_decl(param: ir.Param, type_mapper: TypeMapper) -> tuple[str, tuple[Import, ...]]:
     """Render one parameter declaration `name: Type` (+ ` = default`) and its imports."""
     rt = type_mapper.render(param.type, optional=param.optional)
-    default = param.default if param.default is not None else type_mapper.null_default(
-        param.type, optional=param.optional
+    default = (
+        param.default
+        if param.default is not None
+        else type_mapper.null_default(param.type, optional=param.optional)
     )
     decl = f"{param.name}: {rt.text}"
     if default is not None:
@@ -72,7 +74,7 @@ def _request_doc(op: ir.Operation, *, write: bool) -> str:
 def _request_function(
     op: ir.Operation, naming: Naming, type_mapper: TypeMapper, docstrings: Docstrings
 ) -> tuple[str, list[Import]]:
-    body = op.body                       # write iff not None; narrowed to ir.Body below
+    body = op.body  # write iff not None; narrowed to ir.Body below
     imports: list[Import] = []
     positional: list[str] = []
     for p in op.params:
@@ -80,7 +82,7 @@ def _request_function(
             decl, imp = param_decl(p, type_mapper)
             positional.append(decl)
             imports += imp
-    if body is not None:                 # write: typed body positional + `.models` import
+    if body is not None:  # write: typed body positional + `.models` import
         positional.append(f"body: {body.model}")
         imports.append(Import(".models", body.model))
     keyword_only: list[str] = []
@@ -102,7 +104,7 @@ def _request_function(
     query_items = [f'"{p.alias or p.name}": {p.name}' for p in op.params if p.loc == "query"]
     if query_items:
         kwargs.append("query={" + ", ".join(query_items) + "}")
-    if body is not None:                 # render model_dump flags straight off ir.Body (no .dump)
+    if body is not None:  # render model_dump flags straight off ir.Body (no .dump)
         kwargs.append(
             f"json_body=body.model_dump(by_alias={body.by_alias}, exclude_none={body.omit_none})"
         )
@@ -146,7 +148,7 @@ def _client_method(
     the class. Method name is verbatim `op.name`; the builder call uses `module_function(op.name)`
     (the shadow guard, so `list` -> `_requests.list_`). Docstring is the FULL `op.documentation`.
     """
-    body = op.body                       # write iff not None (narrowed to ir.Body below)
+    body = op.body  # write iff not None (narrowed to ir.Body below)
     imports: list[Import] = []
     positional: list[str] = ["self"]
     call_args: list[str] = []
@@ -156,7 +158,7 @@ def _client_method(
             positional.append(decl)
             call_args.append(p.name)
             imports += imp
-    if body is not None:                 # write: typed body positional, forwarded through unchanged
+    if body is not None:  # write: typed body positional, forwarded through unchanged
         positional.append(f"body: {body.model}")
         call_args.append("body")
         imports.append(Import(".models", body.model))

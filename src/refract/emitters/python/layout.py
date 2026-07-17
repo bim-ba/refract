@@ -21,7 +21,7 @@ class PythonLayout(Layout):
 
     def path(self, res: ir.Resource, surface: str) -> str:
         base = f"{res.domain}/{res.resource}"
-        if surface == "root_client":              # per-API domain surface (DomainEmitter)
+        if surface == "root_client":  # per-API domain surface (DomainEmitter)
             return f"{res.domain}/client.py"
         if surface == "tests":
             return f"tests/{res.domain}/test_{res.resource}.py"

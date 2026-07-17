@@ -37,7 +37,12 @@ def python_backend() -> LanguageBackend:
         TestsSurface(*parts),
     )
     return LanguageBackend(
-        name="python", naming=naming, type_mapper=type_mapper, formatter=RuffFormatter(),
-        docstrings=docstrings, layout=PythonLayout(), surfaces=surfaces,
+        name="python",
+        naming=naming,
+        type_mapper=type_mapper,
+        formatter=RuffFormatter(),
+        docstrings=docstrings,
+        layout=PythonLayout(),
+        surfaces=surfaces,
         domain_surfaces=(RootClientSurface(*parts),),
     )

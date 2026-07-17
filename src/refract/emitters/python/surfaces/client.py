@@ -15,10 +15,15 @@ if TYPE_CHECKING:
 class ClientSurface(SurfaceEmitter):
     name = "client"
 
-    def __init__(self, naming: Naming, type_mapper: TypeMapper, docstrings: Docstrings,
-                 env: Environment) -> None:
+    def __init__(
+        self, naming: Naming, type_mapper: TypeMapper, docstrings: Docstrings, env: Environment
+    ) -> None:
         self._naming, self._type_mapper, self._docstrings, self._env = (
-            naming, type_mapper, docstrings, env)
+            naming,
+            type_mapper,
+            docstrings,
+            env,
+        )
 
     def applies(self, res: ir.Resource) -> bool:
         return bool(res.operations)

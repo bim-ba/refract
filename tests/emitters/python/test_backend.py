@@ -7,7 +7,14 @@ def test_backend_composes_all_strategies_and_surfaces():
     b = python_backend()
     assert isinstance(b, LanguageBackend) and b.name == "python"
     assert {s.name for s in b.surfaces} == {
-        "package", "models", "requests", "client", "cli", "mcp", "tests"}
+        "package",
+        "models",
+        "requests",
+        "client",
+        "cli",
+        "mcp",
+        "tests",
+    }
     assert {s.name for s in b.domain_surfaces} == {"root_client"}  # per-API glue
 
 

@@ -73,7 +73,7 @@ class Generator:
             by_domain[res.domain].append(res)
             for rel, content in self.render_resource(res, config).items():
                 the_plan[Path(out_dir) / rel] = content
-        for resources in by_domain.values():   # per-API glue: root client, once per domain
+        for resources in by_domain.values():  # per-API glue: root client, once per domain
             for rel, content in self.render_domain(tuple(resources), config).items():
                 the_plan[Path(out_dir) / rel] = content
         return the_plan
@@ -87,7 +87,8 @@ class Generator:
     @staticmethod
     def check(the_plan: dict[Path, str]) -> int:
         stale = [
-            path for path, content in the_plan.items()
+            path
+            for path, content in the_plan.items()
             if (path.read_text(encoding="utf-8") if path.exists() else None) != content
         ]
         if stale:

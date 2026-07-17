@@ -18,9 +18,7 @@ def _surface():
     from refract.emitters.python.surfaces.tests import TestsSurface
     from refract.emitters.python.types import PythonTypeMapper
 
-    return TestsSurface(
-        PythonNaming(), PythonTypeMapper(), PythonDocstrings(), make_environment()
-    )
+    return TestsSurface(PythonNaming(), PythonTypeMapper(), PythonDocstrings(), make_environment())
 
 
 def _emit(res):
@@ -31,7 +29,7 @@ def _emit(res):
 
 def test_tests_applies_only_when_cases_exist(me_resource, priorities_resource):
     assert _surface().applies(me_resource) is True
-    assert _surface().applies(priorities_resource) is False   # priorities carries no test cases
+    assert _surface().applies(priorities_resource) is False  # priorities carries no test cases
 
 
 def test_me_tests(me_resource):
@@ -59,7 +57,7 @@ def test_me_tests(me_resource):
     assert "@responses.activate" in out
     assert "def test_me_client_get(creds):" in out
     assert "responses.add(responses.GET, _URL, json=_PAYLOAD, status=200)" in out
-    assert "me = TrackerClient(oauth_token=\"t\", organization_id=\"o\").me.get()" in out
+    assert 'me = TrackerClient(oauth_token="t", organization_id="o").me.get()' in out
     assert "assert isinstance(me, Me)" in out
     assert 'res = _runner.invoke(cli.app, ["--format", "json", "tracker", "me", "get"])' in out
     assert 'return await client.call_tool("tracker_me_get", {})' in out

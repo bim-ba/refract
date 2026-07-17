@@ -36,10 +36,7 @@ def test_me_models(me_resource):
     assert "from __future__ import annotations" in out
     assert "from ycli.yandex.models import APIModel" in out
     assert "class Me(APIModel):" in out
-    assert (
-        '"""The authenticated Tracker user (``GET /v3/myself``) — a safe auth probe."""'
-        in out
-    )
+    assert '"""The authenticated Tracker user (``GET /v3/myself``) — a safe auth probe."""' in out
     assert "uid: int | None = None" in out  # NeutralType lowered via TypeMapper
     assert "login: str | None = None" in out
     assert "from pydantic import" not in out  # me needs neither Field nor RootModel
@@ -52,8 +49,7 @@ def test_priorities_models(priorities_resource):
     assert "class Priority(APIModel):" in out
     assert 'key: str = Field(description="Key of the new priority.")' in out  # required
     assert (
-        'name: LocalizedName = Field(description="Localized display name of the priority.")'
-        in out
+        'name: LocalizedName = Field(description="Localized display name of the priority.")' in out
     )  # ref type
     assert (
         'ru: str | None = Field(default=None, description="Name in Russian.")' in out

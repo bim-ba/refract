@@ -11,8 +11,9 @@ def _emit(res):
     from refract.emitters.python.surfaces.client import ClientSurface
     from refract.emitters.python.types import PythonTypeMapper
 
-    surface = ClientSurface(PythonNaming(), PythonTypeMapper(), PythonDocstrings(),
-                            make_environment())
+    surface = ClientSurface(
+        PythonNaming(), PythonTypeMapper(), PythonDocstrings(), make_environment()
+    )
     return RuffFormatter().format(surface.emit(res, CTX))
 
 
