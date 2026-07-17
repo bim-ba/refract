@@ -18,13 +18,16 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "httpx>=0.28",
+    "jinja2>=3.1.6",
     "pydantic>=2.13.4",
     "pyyaml>=6.0.3",
     "ruff>=0.15.20",
+    "typer>=0.26.8",
 ]
 
 [project.scripts]
-refract = "refract.cli:main"
+refract = "refract.cli:app"
 
 [build-system]
 requires = ["hatchling"]
@@ -35,7 +38,7 @@ packages = ["src/refract"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--strict-markers --cov=refract --cov-report=term-missing --cov-fail-under=100"
+addopts = "--strict-markers --import-mode=importlib --cov=refract --cov-report=term-missing --cov-fail-under=0"
 
 [tool.coverage.run]
 source = ["src/refract"]
