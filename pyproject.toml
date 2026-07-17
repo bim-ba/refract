@@ -1,6 +1,6 @@
 [project]
 name = "refract"
-version = "0.0.0"
+version = "0.1.0"
 description = "Language-agnostic, spec-driven generator: one neutral API spec → typed IR → per-(language×surface) emitters (client/CLI/MCP/models/tests) + OpenAPI."
 readme = "README.md"
 license = "MIT"
