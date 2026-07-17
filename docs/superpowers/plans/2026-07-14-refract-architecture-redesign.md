@@ -35,7 +35,8 @@
 - **Форматтер:** только `subprocess.run(["ruff", "format", "--stdin-filename", "<file>.py", "-"], input=src, capture_output=True, text=True, check=True)`. Python-API у ruff нет. Обёрнут в `RuffFormatter` с обработкой `CalledProcessError`/`FileNotFoundError`.
 - **Версия:** `src/refract/__init__.py` -> `__version__ = version("refract")` (`importlib.metadata`, guard `PackageNotFoundError`). Источник истины - `pyproject` `version`. Не хардкодить.
 - **CLI:** Typer, `Annotated`-стиль опций; entry point `refract = "refract.cli:app"` (обёртка `main()` не нужна - `Typer()` callable).
-- **Именование:** имена полей/идентификаторов - полностью, без аббревиатур (домовый стиль ycli). Идентификаторы кода - на английском; русский - только в prose плана/доках.
+- **Именование:** имена полей/идентификаторов - полностью, без аббревиатур (домовый стиль ycli). Идентификаторы кода - на английском; русский - только в prose плана/доках (НЕ в docstring-ах эмитируемого/IR-кода - они на английском).
+- **"Дословно" из Shared Contracts = семантическая/структурная эквивалентность, не побуквенная.** Собственные ruff-правила проекта (`UP`, `I`), применяемые через `ruff --fix`, имеют приоритет над буквальным синтаксисом контракта: `UP007` перепишет `Union[X, Y]` -> `X | Y` и `Optional[X]` -> `X | None`, isort пересортирует импорты. Это ожидаемо и корректно - ревьюер не должен флагать `X | Y` как отклонение от контрактного `Union[...]`.
 - **Оракул:** L0 (юниты, костяк покрытия) + L1 (регенерируемые снапшоты) держат быстрый гейт; L3 (поведенческий) - opt-in (`@pytest.mark.behavioral`). L2 (byte-identical vs ycli) - **отложен**: D-стиля ycli ещё не существует, стартовые goldens аннулированы (см. разд. Оракул). Гейт покрытия по refract-коду держат L0+L1.
 - **Секретность:** ни хардкода токенов/id, ни воспроизведения кред из дампов/логов в коде или тестах (кроме уже существующих фикстурных `"t"`/`"o"`).
 
@@ -787,7 +788,7 @@ class _Client(BaseModel):
 
 
 class Server(_Client):
-    """Fixed base URL for the walking skeleton; TemplatedServer(variables) grows later (ось 'server')."""
+    """Fixed base URL for the walking skeleton; a templated server (variables) grows later."""
     base_url: str
 
 
@@ -1582,7 +1583,7 @@ class _Client(BaseModel):
 
 
 class Server(_Client):
-    """Fixed base URL for the walking skeleton; TemplatedServer(variables) grows later (ось 'server')."""
+    """Fixed base URL for the walking skeleton; a templated server (variables) grows later."""
     base_url: str
 
 
