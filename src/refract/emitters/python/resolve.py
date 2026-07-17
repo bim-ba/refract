@@ -66,6 +66,39 @@ def path_expr(path: str) -> str:
     return f'f"{path}"' if "{" in path else f'"{path}"'
 
 
+def signature_and_call(
+    op: ir.Operation, type_mapper: TypeMapper
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[Import, ...]]:
+    """(positional_decls, keyword_only_decls, call_args, param_type_imports).
+
+    positional_decls = path-param decls (+ `body: <model>` when op.body); keyword_only_decls =
+    query-param decls; call_args = path names (+ "body") + `name=name` for query. imports carries
+    ONLY the param TYPE imports (from param_decl). Callers add their own prefix (`self`), suffix
+    (`client=Depends(...)`), the `*` marker, the response/body MODEL imports (whose module differs
+    per caller), and - for requests - the alias-keyed query dict.
+    """
+    positional: list[str] = []
+    call_args: list[str] = []
+    imports: list[Import] = []
+    for p in op.params:
+        if p.loc == "path":
+            decl, imp = param_decl(p, type_mapper)
+            positional.append(decl)
+            call_args.append(p.name)
+            imports += imp
+    if op.body is not None:
+        positional.append(f"body: {op.body.model}")
+        call_args.append("body")
+    keyword_only: list[str] = []
+    for p in op.params:
+        if p.loc == "query":
+            decl, imp = param_decl(p, type_mapper)
+            keyword_only.append(decl)
+            call_args.append(f"{p.name}={p.name}")
+            imports += imp
+    return tuple(positional), tuple(keyword_only), tuple(call_args), tuple(imports)
+
+
 def _request_doc(op: ir.Operation, *, write: bool) -> str:
     if write:
         return f"``{op.method} /{op.path}`` - {op.name} request from a typed body."
@@ -76,23 +109,11 @@ def _request_function(
     op: ir.Operation, naming: Naming, type_mapper: TypeMapper, docstrings: Docstrings
 ) -> tuple[str, list[Import]]:
     body = op.body  # write iff not None; narrowed to ir.Body below
-    imports: list[Import] = []
-    positional: list[str] = []
-    for p in op.params:
-        if p.loc == "path":
-            decl, imp = param_decl(p, type_mapper)
-            positional.append(decl)
-            imports += imp
-    if body is not None:  # write: typed body positional + `.models` import
-        positional.append(f"body: {body.model}")
+    positional, keyword_only, _call_args, param_imports = signature_and_call(op, type_mapper)
+    imports: list[Import] = list(param_imports)
+    if body is not None:  # write: `body: <model>` already in `positional`; add its `.models` import
         imports.append(Import(".models", body.model))
-    keyword_only: list[str] = []
-    for p in op.params:
-        if p.loc == "query":
-            decl, imp = param_decl(p, type_mapper)
-            keyword_only.append(decl)
-            imports += imp
-    params = signature_params(tuple(positional), tuple(keyword_only))
+    params = signature_params(positional, keyword_only)
     response_model = op.response_model
     if response_model is None:  # 204/no-body ops aren't in the walking skeleton yet - fail loud
         raise ValueError(f"{op.name}: operation has no response model (not yet supported)")
@@ -150,27 +171,12 @@ def _client_method(
     (the shadow guard, so `list` -> `_requests.list_`). Docstring is the FULL `op.documentation`.
     """
     body = op.body  # write iff not None (narrowed to ir.Body below)
-    imports: list[Import] = []
-    positional: list[str] = ["self"]
-    call_args: list[str] = []
-    for p in op.params:
-        if p.loc == "path":
-            decl, imp = param_decl(p, type_mapper)
-            positional.append(decl)
-            call_args.append(p.name)
-            imports += imp
-    if body is not None:  # write: typed body positional, forwarded through unchanged
-        positional.append(f"body: {body.model}")
-        call_args.append("body")
+    positional, keyword_only, call_args, param_imports = signature_and_call(op, type_mapper)
+    positional = ("self", *positional)
+    imports: list[Import] = list(param_imports)
+    if body is not None:  # write: typed body forwarded through unchanged; add its `.models` import
         imports.append(Import(".models", body.model))
-    keyword_only: list[str] = []
-    for p in op.params:
-        if p.loc == "query":
-            decl, imp = param_decl(p, type_mapper)
-            keyword_only.append(decl)
-            call_args.append(f"{p.name}={p.name}")
-            imports += imp
-    params = signature_params(tuple(positional), tuple(keyword_only))
+    params = signature_params(positional, keyword_only)
     response_model = op.response_model
     if response_model is None:  # 204/no-body ops aren't in the walking skeleton yet - fail loud
         raise ValueError(f"{op.name}: operation has no response model (not yet supported)")
@@ -374,33 +380,19 @@ def _mcp_signature(
 
     Path/query go through ``param_decl`` (TypeMapper). Parameters stay flat (not keyword-only):
     fastmcp reads them as ordinary arguments."""
-    parameters: list[str] = []
-    imports: list[Import] = []
-    for param in op.params:
-        if param.loc == "path":
-            decl, param_imports = param_decl(param, type_mapper)
-            parameters.append(decl)
-            imports += param_imports
-    if op.body is not None:
-        parameters.append(f"body: {op.body.model}")
-    for param in op.params:
-        if param.loc == "query":
-            decl, param_imports = param_decl(param, type_mapper)
-            parameters.append(decl)
-            imports += param_imports
-    parameters.append(
-        f"client: {naming.class_name(res.domain, 'Client')} = Depends({res.domain}_client)"
-    )
-    return parameters, imports
+    positional, keyword_only, _call_args, imports = signature_and_call(op, type_mapper)
+    parameters = [
+        *positional,
+        *keyword_only,
+        f"client: {naming.class_name(res.domain, 'Client')} = Depends({res.domain}_client)",
+    ]
+    return parameters, list(imports)
 
 
-def _mcp_call_args(op: ir.Operation) -> str:
+def _mcp_call_args(op: ir.Operation, type_mapper: TypeMapper) -> str:
     """Arguments forwarded to the client call: path, ``body``, then keyword query."""
-    arguments = [param.name for param in op.params if param.loc == "path"]
-    if op.body is not None:
-        arguments.append("body")
-    arguments += [f"{param.name}={param.name}" for param in op.params if param.loc == "query"]
-    return ", ".join(arguments)
+    _positional, _keyword_only, call_args, _imports = signature_and_call(op, type_mapper)
+    return ", ".join(call_args)
 
 
 def _mcp_tool(
@@ -428,7 +420,7 @@ def _mcp_tool(
     signature = (
         f"def {naming.module_function(op.name)}({', '.join(parameters)}) -> {op.response_model}:"
     )
-    call = f"client.{res.resource}.{op.name}({_mcp_call_args(op)})"
+    call = f"client.{res.resource}.{op.name}({_mcp_call_args(op, type_mapper)})"
     guard = meta.require_found
     if guard is None:
         body = [f"    return {call}"]
