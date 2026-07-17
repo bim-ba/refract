@@ -2399,7 +2399,7 @@ def _resource() -> ir.Resource:
 def test_value_objects_are_frozen():
     frag = Fragment(lines=("a", "b"), imports=(Import("m", "N"),))
     assert frag.lines == ("a", "b")
-    with pytest.raises(Exception):
+    with pytest.raises(dataclasses.FrozenInstanceError):
         frag.lines = ()  # frozen dataclass
 
 
@@ -2496,7 +2496,8 @@ class Fragment:
 class EmitContext:
     """Per-generation config beyond the resource itself."""
     package_root: str        # where runtime/base/models live, e.g. "ycli.yandex.tracker"
-    config: ir.ClientConfig  # server (base_url), default_headers, auth schemes (per-API glue)
+    config: ir.ClientConfig | None = None  # per-API glue; ONLY tests (base_url) + root_client read it;
+    # per-resource surfaces (requests/client/models/cli/mcp/package) ignore it, hence the None default.
 
 # ---- 5 injected strategies (ABCs) ----
 
@@ -2595,7 +2596,7 @@ def test_register_and_get(monkeypatch):
 
 def test_unknown_backend_raises(monkeypatch):
     monkeypatch.setattr(registry, "_BACKENDS", {})
-    with pytest.raises(registry.UnknownBackend):
+    with pytest.raises(registry.UnknownBackendError):
         registry.get_backend("nope")  # lazy import of refract.emitters.nope.backend fails
 ```
 
@@ -2611,12 +2612,12 @@ from typing import TYPE_CHECKING, Callable
 if TYPE_CHECKING:
     from refract.emitters.api import LanguageBackend
 
-__all__ = ["UnknownBackend", "backend", "get_backend"]
+__all__ = ["UnknownBackendError", "backend", "get_backend"]
 
 _BACKENDS: dict[str, Callable[[], LanguageBackend]] = {}
 
 
-class UnknownBackend(Exception):
+class UnknownBackendError(Exception):
     """No backend registered (and none importable) under this language name."""
 
 
@@ -2634,9 +2635,9 @@ def get_backend(name: str) -> LanguageBackend:
         try:
             importlib.import_module(f"refract.emitters.{name}.backend")
         except ModuleNotFoundError as error:
-            raise UnknownBackend(f"no backend for language {name!r}") from error
+            raise UnknownBackendError(f"no backend for language {name!r}") from error
     if name not in _BACKENDS:
-        raise UnknownBackend(f"module refract.emitters.{name}.backend did not register {name!r}")
+        raise UnknownBackendError(f"module refract.emitters.{name}.backend did not register {name!r}")
     return _BACKENDS[name]()
 ```
 
