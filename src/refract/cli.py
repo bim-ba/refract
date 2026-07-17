@@ -15,7 +15,7 @@ from pathlib import Path
 from refract.generate import check, plan, write
 from refract.loader import SpecError
 
-_EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "ycli-tracker"
+_EXAMPLES = Path(__file__).resolve().parent.parent.parent / "examples" / "ycli-tracker"
 _SPECS_DIR = _EXAMPLES
 _OUT_DIR = _EXAMPLES / "out"
 
