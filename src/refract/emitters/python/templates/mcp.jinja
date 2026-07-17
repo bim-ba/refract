@@ -1,0 +1,8 @@
+{# src/refract/emitters/python/templates/mcp.jinja #}
+{% extends "_module.jinja" %}
+{% block body %}
+{{ page.server_line }}
+{% for tool in page.tools %}
+{{ tool }}
+{% endfor %}
+{% endblock %}

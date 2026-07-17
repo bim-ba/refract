@@ -40,3 +40,11 @@ class CliPageView(_View):
     header_lines: tuple[str, ...] = ()
     import_lines: tuple[str, ...] = ()
     blocks: tuple[str, ...] = ()
+
+
+class McpPageView(_View):
+    doc_block: tuple[str, ...] = ()
+    header_lines: tuple[str, ...] = ()
+    import_lines: tuple[str, ...] = ()
+    server_line: str = ""
+    tools: tuple[str, ...] = ()
