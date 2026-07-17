@@ -2255,8 +2255,8 @@ def _read_mapping(path: Path) -> dict:
     """Read + YAML-parse `path`, asserting a mapping top level (shared by both load entry points)."""
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as error:
-        raise SpecError(f"{path}: invalid YAML - {error}") from error
+    except (OSError, yaml.YAMLError) as error:  # missing/unreadable file or malformed YAML
+        raise SpecError(f"{path}: cannot read spec - {error}") from error
     if not isinstance(raw, dict):
         raise SpecError(f"{path}: top level must be a mapping, got {type(raw).__name__}")
     return raw
