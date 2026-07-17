@@ -378,9 +378,9 @@ class Naming(ABC):
 
 class TypeMapper(ABC):
     @abstractmethod
-    def render(self, type: NeutralType, *, optional: bool) -> RenderedType: ...
+    def render(self, neutral_type: NeutralType, *, optional: bool) -> RenderedType: ...
     @abstractmethod
-    def null_default(self, type: NeutralType, *, optional: bool) -> str | None: ...
+    def null_default(self, neutral_type: NeutralType, *, optional: bool) -> str | None: ...
 
 class Formatter(ABC):
     @abstractmethod
@@ -2510,9 +2510,9 @@ class Naming(ABC):
 
 class TypeMapper(ABC):
     @abstractmethod
-    def render(self, type: NeutralType, *, optional: bool) -> RenderedType: ...
+    def render(self, neutral_type: NeutralType, *, optional: bool) -> RenderedType: ...
     @abstractmethod
-    def null_default(self, type: NeutralType, *, optional: bool) -> str | None: ...
+    def null_default(self, neutral_type: NeutralType, *, optional: bool) -> str | None: ...
 
 class Formatter(ABC):
     @abstractmethod
@@ -2723,7 +2723,7 @@ class PythonNaming(Naming):
 
 **Interfaces:**
 - Consumes: `TypeMapper`, `RenderedType`, `Import` (разд. C); `NeutralType` (разд. A).
-- Produces: `PythonTypeMapper` - `render(type, *, optional) -> RenderedType`, `null_default(type, *, optional) -> str | None`. Здесь живёт лоуринг (бывший `_lower_type`), `match` + `assert_never`.
+- Produces: `PythonTypeMapper` - `render(neutral_type, *, optional) -> RenderedType`, `null_default(neutral_type, *, optional) -> str | None`. Здесь живёт лоуринг (бывший `_lower_type`), `match` + `assert_never`.
 
 - [ ] **Step 1: Написать падающие тесты**
 
@@ -2785,17 +2785,17 @@ _SCALAR = {"string": "str", "integer": "int", "number": "float", "boolean": "boo
 class PythonTypeMapper(TypeMapper):
     """Lower a NeutralType to a Python type string (+ the imports it needs)."""
 
-    def render(self, type: NeutralType, *, optional: bool) -> RenderedType:
-        base = self._base(type)
+    def render(self, neutral_type: NeutralType, *, optional: bool) -> RenderedType:
+        base = self._base(neutral_type)
         if optional:
             return RenderedType(text=f"{base.text} | None", imports=base.imports)
         return base
 
-    def null_default(self, type: NeutralType, *, optional: bool) -> str | None:
+    def null_default(self, neutral_type: NeutralType, *, optional: bool) -> str | None:
         return "None" if optional else None
 
-    def _base(self, type: NeutralType) -> RenderedType:
-        match type:
+    def _base(self, neutral_type: NeutralType) -> RenderedType:
+        match neutral_type:
             case ScalarType(scalar="any"):
                 return RenderedType(text="Any", imports=(Import("typing", "Any"),))
             case ScalarType(scalar=scalar):
@@ -2810,7 +2810,7 @@ class PythonTypeMapper(TypeMapper):
                 return RenderedType(text=f"dict[{kr.text}, {vr.text}]",
                                     imports=kr.imports + vr.imports)
             case _:
-                assert_never(type)
+                assert_never(neutral_type)
 ```
 
 - [ ] **Step 4: Прогнать - зелено** -> **Step 5: Commit** (`feat(python): PythonTypeMapper (lowering leaves the loader, gains list/map + assert_never)`)
