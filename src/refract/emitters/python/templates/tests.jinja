@@ -1,0 +1,10 @@
+{# src/refract/emitters/python/templates/tests.jinja #}
+{% extends "_module.jinja" %}
+{% block body %}
+{% for line in page.constants %}
+{{ line }}
+{% endfor %}
+{% for test in page.tests %}
+{{ test }}
+{% endfor %}
+{% endblock %}

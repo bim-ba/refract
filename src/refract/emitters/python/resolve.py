@@ -10,8 +10,9 @@ from refract.emitters.python.views import (
     McpPageView,
     ModelsPageView,
     RequestsPageView,
+    TestsPageView,
 )
-from refract.ir import ObjectModel, RootListModel, Safety
+from refract.ir import ObjectModel, RootListModel, Safety, TestKind
 
 if TYPE_CHECKING:
     from refract import ir
@@ -477,4 +478,195 @@ def resolve_mcp(
         import_lines=render_imports(tuple(imports)),
         server_line=f'mcp = FastMCP("{res.module_docs.mcp_server}")',
         tools=tuple(tools),
+    )
+
+
+# Docstring for the require_found empty-response guard (structural - only the 200-empty case,
+# tied to the sentinel ``r.login is None`` declared by the read-tool).
+_EMPTY_GUARD_DOC = (
+    "200 with empty body hits the login-is-None guard (e.g. bad permissions -> blank object)."
+)
+
+
+def _tests_module_doc(res: ir.Resource, op: ir.Operation, kinds: set[TestKind]) -> str:
+    """Text of the test-module docstring: ``<Domain> /<path> resource - <surfaces>, stubbed.``"""
+    labels = []
+    if TestKind.CLIENT in kinds:
+        labels.append("client")
+    if TestKind.CLI in kinds:
+        labels.append("CLI")
+    if kinds & {TestKind.MCP, TestKind.MCP_GUARD}:
+        labels.append("MCP")
+    surfaces = " + ".join(labels)
+    return f"{res.domain_title} /{op.path} resource - {surfaces}, HTTP stubbed."
+
+
+def _tests_imports(
+    res: ir.Resource, op: ir.Operation, ctx: EmitContext, kinds: set[TestKind], client_class: str
+) -> tuple[str, ...]:
+    has_client = TestKind.CLIENT in kinds
+    has_cli = TestKind.CLI in kinds
+    has_mcp = TestKind.MCP in kinds
+    has_mcp_guard = TestKind.MCP_GUARD in kinds
+
+    stdlib: list[str] = []
+    if has_mcp:
+        stdlib.append("import asyncio")
+    if has_cli:
+        stdlib.append("import json")
+
+    third_party: list[str] = []
+    if has_mcp_guard:
+        third_party.append("import pytest")
+    third_party.append("import responses")
+    if has_mcp or has_mcp_guard:
+        third_party.append("from fastmcp import Client")
+    if has_mcp_guard:
+        third_party.append("from fastmcp.exceptions import ToolError")
+    if has_cli:
+        third_party.append("from typer.testing import CliRunner")
+
+    first_party: list[str] = []
+    if has_cli:
+        first_party.append("import ycli.cli.app as cli")
+    if has_mcp:
+        first_party.append("from ycli.mcp import mcp as root_mcp")
+    if has_client:
+        first_party.append(f"from {ctx.package_root}.client import {client_class}")
+    if has_mcp_guard:
+        first_party.append(
+            f"from {ctx.package_root}.{res.resource} import mcp as {res.resource}_mcp_module"
+        )
+    if has_client:
+        first_party.append(
+            f"from {ctx.package_root}.{res.resource}.models import {op.response_model}"
+        )
+    return (*stdlib, *third_party, *first_party)
+
+
+def _tests_constants(
+    res: ir.Resource, op: ir.Operation, ctx: EmitContext, kinds: set[TestKind]
+) -> tuple[str, ...]:
+    """Module constants: ``_URL`` (always), ``_PAYLOAD`` (client case), ``_runner`` (cli case).
+
+    ``_URL`` is built from ``ctx.config.server.base_url`` (``base_url`` left ``Resource`` for
+    ``ClientConfig``). ``response_json`` is authored data; ``!r`` produces a single-quote repr,
+    which ruff normalizes to double-quote (matching the golden). No type lowering is needed."""
+    if ctx.config is None:
+        raise ValueError("tests surface requires ClientConfig (base_url)")
+    lines = [f'_URL = "{ctx.config.server.base_url}/{op.path}"']
+    if TestKind.CLIENT in kinds:
+        client_case = next(case for case in op.tests if case.kind is TestKind.CLIENT)
+        lines.append(f"_PAYLOAD = {client_case.response_json!r}")
+    if TestKind.CLI in kinds:
+        lines.append("_runner = CliRunner()")
+    return tuple(lines)
+
+
+def _stub(case: ir.TestCase) -> str:
+    """The ``responses.add(...)`` line (``_PAYLOAD`` for reads, inline ``{}`` for guard cases)."""
+    json_arg = repr(case.response_json) if case.kind is TestKind.MCP_GUARD else "_PAYLOAD"
+    return (
+        f"    responses.add(responses.{case.http_method}, _URL, "
+        f"json={json_arg}, status={case.status})"
+    )
+
+
+def _asserts(case: ir.TestCase) -> list[str]:
+    """One ``assert <expr>`` line per authored assert."""
+    return [f"    assert {expr}" for expr in case.asserts]
+
+
+def _client_test(res: ir.Resource, case: ir.TestCase) -> str:
+    """Client case - chain the client call, then the authored asserts."""
+    lines = [
+        "@responses.activate",
+        f"def test_{case.name}(creds):",
+        _stub(case),
+        f"    {res.resource} = {case.call}",
+        *_asserts(case),
+    ]
+    return "\n".join(lines)
+
+
+def _cli_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
+    """CLI case - ``CliRunner`` json-invoke of the ``<domain> <resource> <command>`` command."""
+    assert op.cli is not None
+    argv = ", ".join(
+        f'"{token}"' for token in ("--format", "json", res.domain, res.resource, op.cli.name)
+    )
+    lines = [
+        "@responses.activate",
+        f"def test_{case.name}(creds):",
+        _stub(case),
+        f"    res = _runner.invoke(cli.app, [{argv}])",
+        *_asserts(case),
+    ]
+    return "\n".join(lines)
+
+
+def _mcp_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
+    """MCP case - call the root-composed tool through ``root_mcp`` under ``asyncio.run``."""
+    assert op.mcp is not None
+    root_tool = f"{res.domain}_{op.mcp.name}"
+    lines = [
+        "@responses.activate",
+        f"def test_{case.name}(creds):",
+        _stub(case),
+        "",
+        "    async def go():",
+        "        async with Client(root_mcp) as client:",
+        f'            return await client.call_tool("{root_tool}", {{}})',
+        "",
+        "    result = asyncio.run(go())",
+        *_asserts(case),
+    ]
+    return "\n".join(lines)
+
+
+def _guard_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
+    """MCP guard case - the resource-local tool must raise ``ToolError`` (no asserts)."""
+    assert op.mcp is not None
+    lines = ["@responses.activate", f"async def test_{case.name}(creds):"]
+    if case.status == 200:
+        lines.append(f'    """{_EMPTY_GUARD_DOC}"""')
+    lines += [
+        _stub(case),
+        f"    async with Client({res.resource}_mcp_module.mcp) as client:",
+        "        with pytest.raises(ToolError):",
+        f'            await client.call_tool("{op.mcp.name}", {{}})',
+    ]
+    return "\n".join(lines)
+
+
+def _test_block(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
+    """Dispatch one authored ``TestCase`` to its per-kind renderer (identity on ``TestKind``)."""
+    if case.kind is TestKind.CLIENT:
+        return _client_test(res, case)
+    if case.kind is TestKind.CLI:
+        return _cli_test(res, op, case)
+    if case.kind is TestKind.MCP:
+        return _mcp_test(res, op, case)
+    return _guard_test(res, op, case)  # TestKind.MCP_GUARD
+
+
+def resolve_tests(
+    res: ir.Resource,
+    ctx: EmitContext,
+    naming: Naming,
+    type_mapper: TypeMapper,
+    docstrings: Docstrings,
+) -> TestsPageView:
+    """IR -> TestsPageView. Takes the single operation carrying tests (walking-skeleton `me`),
+    gates imports/constants on its ``kinds`` (a set of ``TestKind``), and renders one leaf per
+    case. ``type_mapper`` is unused here - all TestCase values are authored."""
+    op = next(operation for operation in res.operations if operation.tests)
+    kinds = {case.kind for case in op.tests}
+    client_class = naming.class_name(res.domain, "Client")
+    return TestsPageView(
+        doc_block=docstrings.render(_tests_module_doc(res, op, kinds), ""),
+        header_lines=("from __future__ import annotations",),
+        import_lines=_tests_imports(res, op, ctx, kinds, client_class),
+        constants=_tests_constants(res, op, ctx, kinds),
+        tests=tuple(_test_block(res, op, case) for case in op.tests),
     )

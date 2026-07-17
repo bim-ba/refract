@@ -48,3 +48,11 @@ class McpPageView(_View):
     import_lines: tuple[str, ...] = ()
     server_line: str = ""
     tools: tuple[str, ...] = ()
+
+
+class TestsPageView(_View):
+    doc_block: tuple[str, ...] = ()
+    header_lines: tuple[str, ...] = ()
+    import_lines: tuple[str, ...] = ()
+    constants: tuple[str, ...] = ()
+    tests: tuple[str, ...] = ()
