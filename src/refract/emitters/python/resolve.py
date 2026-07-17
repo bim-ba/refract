@@ -4,7 +4,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING
 
 from refract.emitters.api import Import
-from refract.emitters.python.views import RequestsPageView
+from refract.emitters.python.views import ClientPageView, RequestsPageView
 
 if TYPE_CHECKING:
     from refract import ir
@@ -78,7 +78,8 @@ def _request_function(
             imports += imp
     params = signature_params(tuple(positional), tuple(keyword_only))
     response_model = op.response_model
-    assert response_model is not None, f"{op.name}: operation has no response model"
+    if response_model is None:  # 204/no-body ops aren't in the walking skeleton yet - fail loud
+        raise ValueError(f"{op.name}: operation has no response model (not yet supported)")
     imports.append(Import(".models", response_model))
     function_name = naming.module_function(op.name)
     param_list = ", ".join(params)
@@ -120,4 +121,72 @@ def resolve_requests(
         doc_block=docstrings.render(module_doc, ""),
         import_lines=render_imports(tuple(imports)),
         functions=tuple(functions),
+    )
+
+
+def _client_method(
+    op: ir.Operation, naming: Naming, type_mapper: TypeMapper, docstrings: Docstrings
+) -> tuple[str, list[Import]]:
+    """One thin-sugar method leaf: `<op.name>` -> `return self._session.send(_requests.<fn>(...))`.
+
+    Built at module nesting (docstring/body at 4 spaces), then indented one level to sit inside
+    the class. Method name is verbatim `op.name`; the builder call uses `module_function(op.name)`
+    (the shadow guard, so `list` -> `_requests.list_`). Docstring is the FULL `op.documentation`.
+    """
+    body = op.body                       # write iff not None (разд. D; narrowed to ir.Body below)
+    imports: list[Import] = []
+    positional: list[str] = ["self"]
+    call_args: list[str] = []
+    for p in op.params:
+        if p.loc == "path":
+            decl, imp = param_decl(p, type_mapper)
+            positional.append(decl)
+            call_args.append(p.name)
+            imports += imp
+    if body is not None:                 # write: typed body positional, forwarded through unchanged
+        positional.append(f"body: {body.model}")
+        call_args.append("body")
+        imports.append(Import(".models", body.model))
+    keyword_only: list[str] = []
+    for p in op.params:
+        if p.loc == "query":
+            decl, imp = param_decl(p, type_mapper)
+            keyword_only.append(decl)
+            call_args.append(f"{p.name}={p.name}")
+            imports += imp
+    params = signature_params(tuple(positional), tuple(keyword_only))
+    response_model = op.response_model
+    if response_model is None:  # 204/no-body ops aren't in the walking skeleton yet - fail loud
+        raise ValueError(f"{op.name}: operation has no response model (not yet supported)")
+    imports.append(Import(".models", response_model))
+    sig = f"def {op.name}({', '.join(params)}) -> {response_model}:"
+    call = f"_requests.{naming.module_function(op.name)}({', '.join(call_args)})"
+    doc = docstrings.render(op.documentation, "    ")
+    body_lines = (sig, *doc, f"    return self._session.send({call})")
+    return "\n".join(indent_lines(body_lines, "    ")), imports
+
+
+def resolve_client(
+    res: ir.Resource,
+    ctx: EmitContext,
+    naming: Naming,
+    type_mapper: TypeMapper,
+    docstrings: Docstrings,
+) -> ClientPageView:
+    base_class = naming.class_name(res.domain, "Resource")
+    imports: list[Import] = [
+        Import(f"{ctx.package_root}.base", base_class),
+        Import(".", "_requests"),
+    ]
+    methods: list[str] = []
+    for op in res.operations:
+        text, method_imports = _client_method(op, naming, type_mapper, docstrings)
+        methods.append(text)
+        imports += method_imports
+    return ClientPageView(
+        doc_block=docstrings.render(res.module_docs.client, ""),
+        import_lines=render_imports(tuple(imports)),
+        class_header=f"class {naming.class_name(res.resource, 'Client')}({base_class}):",
+        class_doc_lines=docstrings.render(res.module_docs.client_class, "    "),
+        methods=tuple(methods),
     )
