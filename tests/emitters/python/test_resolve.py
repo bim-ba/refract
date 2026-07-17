@@ -76,6 +76,15 @@ def test_model_field_with_quoted_description_emits_parseable_source():
     assert 'description="The \\"primary\\" key of the priority."' in decl
 
 
+def test_model_field_with_alias_emits_field_alias():
+    """`field.alias` must render `Field(alias=...)` even without a description."""
+    field = ir.Field(name="type_", type=ir.ScalarType(scalar="string"), alias="type")
+    decl, _imports = resolve._model_field(field, TYPE_MAPPER)
+    ast.parse(f"class M:\n{decl}\n")  # must not raise SyntaxError
+    assert 'alias="type"' in decl
+    assert "Field(" in decl
+
+
 def _op(**overrides) -> ir.Operation:
     fields = {
         "name": "get",

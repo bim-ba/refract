@@ -28,14 +28,6 @@ class RenderedType:
 
 
 @dataclass(frozen=True)
-class Fragment:
-    """The typed boundary between UnitRenderer (per-operation) and ResourceAssembler."""
-
-    lines: tuple[str, ...]
-    imports: tuple[Import, ...] = ()
-
-
-@dataclass(frozen=True)
 class EmitContext:
     """Per-generation config beyond the resource itself."""
 

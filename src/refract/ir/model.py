@@ -104,7 +104,7 @@ class TestCase(_IR):
     response_json: (
         JsonValue | None
     )  # opaque JSON fixture; validated-at-boundary, repr()'d into tests
-    has_json: bool
+    has_json: bool  # carried for fidelity; not yet read by any emitter
     asserts: tuple[str, ...]
     call: str
 
@@ -113,7 +113,7 @@ class Operation(_IR):
     name: str
     method: str
     path: str
-    operation_id: str
+    operation_id: str  # carried for fidelity; not yet read by any emitter
     params: tuple[Param, ...] = ()
     body: Body | None = None
     response_model: str | None = None
@@ -121,7 +121,7 @@ class Operation(_IR):
     mcp: McpMeta | None = None
     cli: CliMeta | None = None
     tests: tuple[TestCase, ...] = ()
-    handler: str | None = None
+    handler: str | None = None  # carried for fidelity; not yet read by any emitter
 
 
 class ModuleDocs(_IR):

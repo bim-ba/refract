@@ -6,8 +6,6 @@ from refract import ir
 from refract.emitters.api import (
     DomainEmitter,
     EmitContext,
-    Fragment,
-    Import,
     LanguageBackend,
     Naming,
     RenderedType,
@@ -28,10 +26,9 @@ def _resource() -> ir.Resource:
 
 
 def test_value_objects_are_frozen():
-    frag = Fragment(lines=("a", "b"), imports=(Import("m", "N"),))
-    assert frag.lines == ("a", "b")
+    rt = RenderedType(text="x")
     with pytest.raises(dataclasses.FrozenInstanceError):
-        frag.lines = ()  # frozen dataclass
+        rt.text = "y"  # frozen dataclass
 
 
 def test_rendered_type_defaults_empty_imports():

@@ -235,13 +235,14 @@ def _shared_models_module(ctx: EmitContext) -> str:
 
 
 def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Import]]:
-    """One model field line: ``name: Type = default`` or ``Field(...)`` for a described field.
+    """One model field line: ``name: Type = default`` or ``Field(...)`` for a described/aliased
+    field.
 
     The type renders from NeutralType via TypeMapper (the key port shift); the default is the
     explicit ``field.default`` or, absent that, ``type_mapper.null_default(...)`` (implied-null).
-    A described field renders ``Field(...)``: optional carries ``default=<default>`` before
-    ``description=``, required carries only ``description=``. Long calls stay one line - ruff
-    wraps them.
+    A described or aliased field renders ``Field(...)``: optional carries ``default=<default>``
+    first, then ``alias=`` (if set), then ``description=`` (if set). Long calls stay one line -
+    ruff wraps them.
     """
     rendered = type_mapper.render(field.type, optional=field.optional)
     imports = list(rendered.imports)
@@ -250,12 +251,15 @@ def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Im
         if field.default is not None
         else type_mapper.null_default(field.type, optional=field.optional)
     )
-    if not field.description:
+    if not field.description and not field.alias:
         return f"    {field.name}: {rendered.text} = {default}", imports
     arguments: list[str] = []
     if default is not None:
         arguments.append(f"default={default}")
-    arguments.append(f"description={py_str(field.description)}")
+    if field.alias is not None:
+        arguments.append(f"alias={py_str(field.alias)}")
+    if field.description is not None:
+        arguments.append(f"description={py_str(field.description)}")
     return f"    {field.name}: {rendered.text} = Field({', '.join(arguments)})", imports
 
 
@@ -301,7 +305,7 @@ def resolve_models(
     from types), finished classes. ``APIModel`` is always imported."""
     imports: list[Import] = [Import(_shared_models_module(ctx), "APIModel")]
     if any(
-        field.description
+        field.description or field.alias
         for model in res.models
         if isinstance(model, ObjectModel)
         for field in model.fields
