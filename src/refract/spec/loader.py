@@ -168,7 +168,7 @@ def _resource(spec: nodes.ResourceSpec) -> ir.Resource:
     return ir.Resource(
         domain=spec.domain,
         resource=spec.resource,
-        security=spec.security,  # base_url dropped - now ir.ClientConfig.server.base_url (разд. I)
+        security=spec.security,  # base_url dropped - now ir.ClientConfig.server.base_url
         models=tuple(_model(model) for model in spec.models),
         operations=tuple(_operation(operation) for operation in spec.operations),
         documentation=spec.documentation,

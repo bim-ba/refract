@@ -134,7 +134,7 @@ class ModuleDocsSpec(_Spec):
 class ResourceSpec(_Spec):
     domain: str
     resource: str
-    security: str  # names an AuthScheme in client.yaml; base_url moved out to client.yaml (разд. J)
+    security: str  # names an AuthScheme in client.yaml; base_url moved out to client.yaml
     module_docs: ModuleDocsSpec = Field(default_factory=ModuleDocsSpec)
     documentation: str | None = None
     models: list[ModelSpec] = Field(default_factory=list)
@@ -175,7 +175,7 @@ class ServerNode(_Spec):
 
 
 class ClientConfigNode(_Spec):
-    """Mirrors client.yaml (разд. J): server + default headers + named auth schemes."""
+    """Mirrors client.yaml: server + default headers + named auth schemes."""
 
     name: str
     server: ServerNode

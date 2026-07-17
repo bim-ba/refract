@@ -1,9 +1,11 @@
 from pathlib import Path
 
+import pytest
+
 from refract import ir
 from refract.ir.model import ObjectModel, RootListModel
 from refract.ir.types import RefType, ScalarType
-from refract.spec.loader import SpecLoader
+from refract.spec.loader import SpecError, SpecLoader
 
 _EX = Path(__file__).resolve().parent.parent.parent / "examples" / "ycli-tracker"
 
@@ -11,7 +13,7 @@ _EX = Path(__file__).resolve().parent.parent.parent / "examples" / "ycli-tracker
 def test_loads_me_as_neutral_ir():
     res = SpecLoader.load(_EX / "tracker" / "me" / "resource.yaml")
     assert res.domain == "tracker" and res.resource == "me"
-    assert not hasattr(res, "base_url")  # base_url moved to client.yaml (разд. J)
+    assert not hasattr(res, "base_url")  # base_url moved to client.yaml
     uid = res.model("Me").fields[0]
     assert uid.name == "uid"
     assert uid.type == ScalarType(scalar="integer")  # neutral, NOT "int | None"
@@ -64,3 +66,21 @@ def test_loads_tracker_client_config():
         ("oauth_token", "YANDEX_ID_OAUTH_TOKEN"),
         ("organization_id", "YANDEX_ID_ORGANIZATION_ID"),
     )
+
+
+def test_root_list_without_item_raises_spec_error(tmp_path: Path):
+    resource_yaml = tmp_path / "resource.yaml"
+    resource_yaml.write_text(
+        """
+domain: t
+resource: m
+security: s
+operations: []
+models:
+  - name: X
+    kind: root_list
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match="root_list requires 'item'"):
+        SpecLoader.load(resource_yaml)

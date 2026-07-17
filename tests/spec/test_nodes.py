@@ -11,7 +11,7 @@ def test_unknown_key_rejected():
         )
 
 
-def test_base_url_now_rejected():  # base_url переехал в client.yaml (разд. J)
+def test_base_url_now_rejected():  # base_url moved to client.yaml
     with pytest.raises(ValidationError):
         ResourceSpec.model_validate(
             {"domain": "t", "resource": "m", "security": "s", "base_url": "u", "operations": []}

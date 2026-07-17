@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from refract.ir.auth import AuthScheme  # discriminated-union alias (разд. H)
+from refract.ir.auth import AuthScheme  # discriminated-union alias
 
 
 class _Client(BaseModel):
