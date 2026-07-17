@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, JsonValue
 from pydantic import Field as PydanticField  # `Field` (below) is the IR model-field class
@@ -29,7 +29,7 @@ class TestKind(StrEnum):
 
 class Field(_IR):
     name: str
-    type: NeutralType          # was: already-lowered Python string
+    type: NeutralType  # was: already-lowered Python string
     optional: bool = False
     default: str | None = None  # source text of an *explicit* spec default; else None
     alias: str | None = None
@@ -38,6 +38,7 @@ class Field(_IR):
 
 class ObjectModel(_IR):
     """A pydantic ``APIModel`` subclass with typed fields."""
+
     kind: Literal["object"] = "object"
     name: str
     fields: tuple[Field, ...] = ()
@@ -46,6 +47,7 @@ class ObjectModel(_IR):
 
 class RootListModel(_IR):
     """A ``RootModel[list[item]]`` public list."""
+
     kind: Literal["root_list"] = "root_list"
     name: str
     item: str
@@ -55,7 +57,7 @@ class RootListModel(_IR):
 # discriminated union: `item` only on root_list, `fields` only on object -> illegal states
 # unrepresentable. envelope (paginated wrapper) is added WITH pagination, not speculatively.
 # dead `config` field dropped (0 spec instances, 0 emitter readers).
-Model = Annotated[Union[ObjectModel, RootListModel], PydanticField(discriminator="kind")]
+Model = Annotated[ObjectModel | RootListModel, PydanticField(discriminator="kind")]
 
 
 class Param(_IR):
@@ -71,8 +73,8 @@ class Param(_IR):
 class Body(_IR):
     mode: Literal["typed_model"] = "typed_model"
     model: str
-    by_alias: bool = True       # -> model_dump(by_alias=...) rendered by the Python backend
-    omit_none: bool = True      # -> model_dump(exclude_none=...) rendered by the Python backend
+    by_alias: bool = True  # -> model_dump(by_alias=...) rendered by the Python backend
+    omit_none: bool = True  # -> model_dump(exclude_none=...) rendered by the Python backend
 
 
 class RequireFound(_IR):
@@ -99,7 +101,9 @@ class TestCase(_IR):
     http_method: str
     path: str
     status: int
-    response_json: JsonValue | None   # opaque JSON fixture; validated-at-boundary, repr()'d into tests
+    response_json: (
+        JsonValue | None
+    )  # opaque JSON fixture; validated-at-boundary, repr()'d into tests
     has_json: bool
     asserts: tuple[str, ...]
     call: str
@@ -134,7 +138,7 @@ class ModuleDocs(_IR):
 class Resource(_IR):
     domain: str
     resource: str
-    security: str               # names an AuthScheme in ClientConfig.auth (base_url moved to ClientConfig)
+    security: str  # names an AuthScheme in ClientConfig.auth (base_url moved to ClientConfig)
     models: tuple[Model, ...]
     operations: tuple[Operation, ...]
     documentation: str | None = None

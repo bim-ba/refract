@@ -1,5 +1,5 @@
 import pytest
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from refract.ir.types import ListType, MapType, NeutralType, RefType, ScalarType
 
@@ -25,8 +25,11 @@ def test_recursive_list_of_ref():
 
 def test_map_is_recursive_both_sides():
     parsed = _adapter.validate_python(
-        {"kind": "map", "key": {"kind": "scalar", "scalar": "string"},
-         "value": {"kind": "scalar", "scalar": "integer"}}
+        {
+            "kind": "map",
+            "key": {"kind": "scalar", "scalar": "string"},
+            "value": {"kind": "scalar", "scalar": "integer"},
+        }
     )
     assert parsed == MapType(key=ScalarType(scalar="string"), value=ScalarType(scalar="integer"))
 

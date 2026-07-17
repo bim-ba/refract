@@ -7,7 +7,7 @@ Python-specific (that was the loader's leak this replaces). Dispatch is exhausti
 
 from __future__ import annotations
 
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -32,17 +32,17 @@ class RefType(_Node):
 
 class ListType(_Node):
     kind: Literal["list"] = "list"
-    item: "NeutralType"
+    item: NeutralType
 
 
 class MapType(_Node):
     kind: Literal["map"] = "map"
-    key: "NeutralType"
-    value: "NeutralType"
+    key: NeutralType
+    value: NeutralType
 
 
 NeutralType = Annotated[
-    Union[ScalarType, RefType, ListType, MapType],
+    ScalarType | RefType | ListType | MapType,
     Field(discriminator="kind"),
 ]
 

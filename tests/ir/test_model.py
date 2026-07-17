@@ -26,8 +26,11 @@ def test_object_and_root_list_are_distinct_variants():
 def test_model_union_parses_by_discriminator():
     adapter = TypeAdapter(ir.Model)
     obj = adapter.validate_python(
-        {"kind": "object", "name": "Me",
-         "fields": [{"name": "uid", "type": {"kind": "scalar", "scalar": "integer"}}]}
+        {
+            "kind": "object",
+            "name": "Me",
+            "fields": [{"name": "uid", "type": {"kind": "scalar", "scalar": "integer"}}],
+        }
     )
     lst = adapter.validate_python({"kind": "root_list", "name": "PriorityList", "item": "Priority"})
     assert isinstance(obj, ir.ObjectModel)
@@ -36,7 +39,9 @@ def test_model_union_parses_by_discriminator():
 
 def test_resource_is_frozen_and_hashable():
     res = ir.Resource(
-        domain="tracker", resource="me", security="oauth_token",
+        domain="tracker",
+        resource="me",
+        security="oauth_token",
         models=(ir.ObjectModel(name="Me", fields=(_field(),)),),
         operations=(ir.Operation(name="get", method="GET", path="myself", operation_id="me_get"),),
     )
@@ -58,8 +63,9 @@ def test_ref_field_type_roundtrips():
 def test_resource_model_accessor_and_domain_title():
     me = ir.ObjectModel(name="Me", fields=(_field(),))
     plist = ir.RootListModel(name="PriorityList", item="Priority")
-    res = ir.Resource(domain="tracker", resource="me",
-                      security="oauth_token", models=(me, plist), operations=())
+    res = ir.Resource(
+        domain="tracker", resource="me", security="oauth_token", models=(me, plist), operations=()
+    )
     assert res.model("Me") is me
     assert res.model("PriorityList") is plist
     resolved = res.model("Me")
