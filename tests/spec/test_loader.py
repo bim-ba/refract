@@ -68,6 +68,11 @@ def test_loads_tracker_client_config():
     )
 
 
+def test_load_missing_file_raises_spec_error():
+    with pytest.raises(SpecError):
+        SpecLoader.load(Path("/nonexistent/resource.yaml"))
+
+
 def test_root_list_without_item_raises_spec_error(tmp_path: Path):
     resource_yaml = tmp_path / "resource.yaml"
     resource_yaml.write_text(

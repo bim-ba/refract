@@ -50,5 +50,21 @@ def test_missing_client_yaml_exits_2(tmp_path):
     assert res.exit_code == 2  # find_client_config raises SpecError -> exit 2
 
 
+def test_bad_client_path_exits_2(tmp_path):
+    res = runner.invoke(
+        app,
+        [
+            "generate",
+            "--specs",
+            str(_EX),
+            "--client",
+            str(tmp_path / "nope.yaml"),
+            "--out",
+            str(tmp_path / "out"),
+        ],
+    )
+    assert res.exit_code == 2
+
+
 def test_requires_subcommand():
     assert runner.invoke(app, []).exit_code != 0
