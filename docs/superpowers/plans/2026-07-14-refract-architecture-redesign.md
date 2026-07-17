@@ -3572,8 +3572,11 @@ def _request_function(op, naming, type_mapper, docstrings) -> tuple[str, list[Im
             keyword_only.append(decl)
             imports += imp
     params = signature_params(tuple(positional), tuple(keyword_only))
-    imports.append(Import(".models", op.response_model))
-    sig = f"def {naming.module_function(op.name)}({', '.join(params)}) -> Request[{op.response_model}]:"
+    response_model = op.response_model
+    if response_model is None:  # 204/no-body ops aren't in the walking skeleton yet - fail loud
+        raise ValueError(f"{op.name}: operation has no response model (not yet supported)")
+    imports.append(Import(".models", response_model))
+    sig = f"def {naming.module_function(op.name)}({', '.join(params)}) -> Request[{response_model}]:"
 
     kwargs = [f'method="{op.method}"', f"path={path_expr(op.path)}"]
     query_items = [f'"{p.alias or p.name}": {p.name}' for p in op.params if p.loc == "query"]
@@ -3583,7 +3586,7 @@ def _request_function(op, naming, type_mapper, docstrings) -> tuple[str, list[Im
         kwargs.append(
             f"json_body=body.model_dump(by_alias={body.by_alias}, exclude_none={body.omit_none})"
         )
-    kwargs.append(f"response_model={op.response_model}")
+    kwargs.append(f"response_model={response_model}")
 
     doc = docstrings.render(_request_doc(op, write=body is not None), "    ")
     lines = [sig, *doc, f"    return Request({', '.join(kwargs)})"]
