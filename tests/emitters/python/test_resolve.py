@@ -1,3 +1,5 @@
+import ast
+
 import pytest
 
 from refract import ir
@@ -33,6 +35,45 @@ def test_signature_params_no_star_when_no_keyword_only():
 
 def test_indent_lines_skips_blanks():
     assert resolve.indent_lines(("a", "", "b"), "    ") == ("    a", "", "    b")
+
+
+def test_py_str_escapes_embedded_quotes():
+    """The hardening this helper exists for: an unescaped `"` would emit invalid Python."""
+    literal = resolve.py_str('The "primary" key')
+    assert literal == '"The \\"primary\\" key"'
+    assert ast.literal_eval(literal) == 'The "primary" key'
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        'The "primary" key',
+        "back\\slash",
+        "line\nbreak",
+        'mixed "quotes" and \\ backslash and \n newline',
+        "em—dash and café",  # non-ASCII stays literal
+        "",
+    ],
+)
+def test_py_str_round_trips_and_is_valid_python(value):
+    literal = resolve.py_str(value)
+    # (a) round-trips back to the original value
+    assert ast.literal_eval(literal) == value
+    # (b) is valid Python when used in an assignment
+    tree = ast.parse(f"x = {literal}")
+    assert isinstance(tree.body[0], ast.Assign)
+
+
+def test_model_field_with_quoted_description_emits_parseable_source():
+    """A `description` containing a `"` must not corrupt the emitted `Field(...)` call."""
+    field = ir.Field(
+        name="key",
+        type=ir.ScalarType(scalar="string"),
+        description='The "primary" key of the priority.',
+    )
+    decl, _imports = resolve._model_field(field, TYPE_MAPPER)
+    ast.parse(f"class M:\n{decl}\n")  # must not raise SyntaxError
+    assert 'description="The \\"primary\\" key of the priority."' in decl
 
 
 def _op(**overrides) -> ir.Operation:

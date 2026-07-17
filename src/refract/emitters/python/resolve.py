@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from typing import TYPE_CHECKING, assert_never
 
@@ -64,6 +65,18 @@ def param_decl(param: ir.Param, type_mapper: TypeMapper) -> tuple[str, tuple[Imp
 def path_expr(path: str) -> str:
     """Emit an f-string when the path has `{placeholders}`, else a plain string literal."""
     return f'f"{path}"' if "{" in path else f'"{path}"'
+
+
+def py_str(value: str) -> str:
+    """A safely-quoted Python string literal for free text (escapes quotes/backslashes/newlines).
+
+    Uses json.dumps: double-quoted with proper escaping, matching the backend's double-quote
+    style, so a quote-free value renders exactly as a hand-written "..." literal (ruff format is
+    a no-op on it). ``ensure_ascii=False`` keeps non-ASCII text (em-dashes, Cyrillic, ...) literal
+    instead of ``\\uXXXX`` escapes - both are valid Python, but literal matches the prior
+    hand-quoted output byte-for-byte.
+    """
+    return json.dumps(value, ensure_ascii=False)
 
 
 def signature_and_call(
@@ -242,7 +255,7 @@ def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Im
     arguments: list[str] = []
     if default is not None:
         arguments.append(f"default={default}")
-    arguments.append(f'description="{field.description}"')
+    arguments.append(f"description={py_str(field.description)}")
     return f"    {field.name}: {rendered.text} = Field({', '.join(arguments)})", imports
 
 
@@ -344,7 +357,7 @@ def resolve_cli(
     group_block = "\n".join(
         [
             f'app = typer.Typer(name="{res.resource}", '
-            f'help="{res.module_docs.cli_group_help}", no_args_is_help=True)',
+            f"help={py_str(res.module_docs.cli_group_help or '')}, no_args_is_help=True)",
             "",
             "",
             "@app.callback()",
@@ -411,9 +424,9 @@ def _mcp_tool(
     meta = op.mcp
     if meta is None:  # resolve_mcp only calls this for mcp-faceted ops - fail loud if that changes
         raise ValueError(f"{op.name}: operation has no mcp facet")
-    annotations = f'{{**{meta.safety.value}, "title": "{meta.title}"}}'
+    annotations = f'{{**{meta.safety.value}, "title": {py_str(meta.title)}}}'
     decorator = (
-        f'@mcp.tool(name="{meta.name}", annotations={annotations}, '
+        f"@mcp.tool(name={py_str(meta.name)}, annotations={annotations}, "
         f"tags={_tags_symbol(meta.safety)})"
     )
     parameters, imports = _mcp_signature(res, op, naming, type_mapper)
@@ -429,7 +442,7 @@ def _mcp_tool(
             f"    result = {call}",
             "    return require_found("
             f"result, sentinel=lambda r: {guard.sentinel}, "
-            f'message="{guard.message}")',
+            f"message={py_str(guard.message)})",
         ]
     lines = [decorator, signature, *docstrings.render(meta.documentation, "    "), *body]
     return "\n".join(lines), imports
