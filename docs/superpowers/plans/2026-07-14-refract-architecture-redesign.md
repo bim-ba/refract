@@ -4078,7 +4078,12 @@ def resolve_models(
     """IR -> ModelsPageView: докстринг модуля, импорты (APIModel + pydantic + собранные из типов),
     готовые классы. ``APIModel`` эмитится всегда (как в текущем эмиттере)."""
     imports: list[Import] = [Import(_shared_models_module(ctx), "APIModel")]
-    if any(field.description for model in res.models for field in model.fields):
+    if any(
+        field.description
+        for model in res.models
+        if isinstance(model, ObjectModel)  # RootListModel has no .fields
+        for field in model.fields
+    ):
         imports.append(Import("pydantic", "Field"))
     if any(isinstance(model, RootListModel) for model in res.models):
         imports.append(Import("pydantic", "RootModel"))
