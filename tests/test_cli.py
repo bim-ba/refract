@@ -37,6 +37,22 @@ def test_spec_error_exits_2(tmp_path):
     assert res.exit_code == 2
 
 
+def test_unknown_security_scheme_exits_2(tmp_path):
+    root = tmp_path / "specs"
+    bad = root / "tracker" / "me"
+    bad.mkdir(parents=True)
+    (bad / "resource.yaml").write_text(
+        "domain: t\nresource: m\nsecurity: nonexistent\noperations: []\n", encoding="utf-8"
+    )
+    (root / "client.yaml").write_text(
+        "name: t\nserver:\n  base_url: https://x/v1\nauth: {}\n", encoding="utf-8"
+    )
+    res = runner.invoke(app, ["generate", "--specs", str(root), "--out", str(tmp_path / "out")])
+    assert res.exit_code == 2
+    assert "spec error" in res.output
+    assert "nonexistent" in res.output
+
+
 def test_missing_client_yaml_exits_2(tmp_path):
     bad = tmp_path / "specs" / "tracker" / "me"
     bad.mkdir(parents=True)

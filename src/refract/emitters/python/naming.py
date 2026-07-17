@@ -5,8 +5,7 @@ import keyword
 
 from refract.emitters.api import Naming
 
-# Names a module-level ``def`` would shadow (builtins + keywords) - instance/module state now,
-# not the old module-global _SHADOWED_NAMES in _common.py.
+# Names a module-level ``def`` would shadow (builtins + keywords).
 _SHADOWED = frozenset(dir(builtins)) | frozenset(keyword.kwlist)
 
 

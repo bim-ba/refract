@@ -58,7 +58,7 @@ exclude_also = [
     "\\.\\.\\.\\s*$",
     "assert_never",
     # the bare wildcard match-arm header pairs 1:1 with `assert_never` in this codebase (verified:
-    # only 3 occurrences, all exhaustive-union fallthroughs) - excluded so the unreachable-by-
+    # 4 occurrences, all exhaustive-union fallthroughs) - excluded so the unreachable-by-
     # construction case-header line doesn't count separately from its already-excluded body.
     "case _:",
 ]

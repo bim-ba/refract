@@ -94,7 +94,7 @@ def _model(spec: nodes.ModelSpec) -> ir.Model:
 
 
 def _body(spec: nodes.BodySpec | None) -> ir.Body | None:
-    """by_alias/omit_none take True/True defaults; the old `dump` text is no longer lowered."""
+    """by_alias/omit_none take True/True defaults; ``dump`` text is not lowered into the IR."""
     return None if spec is None else ir.Body(model=spec.model)
 
 
@@ -130,8 +130,10 @@ def _test(spec: nodes.TestSpec) -> ir.TestCase:
     )
 
 
-def _response_model(responses: dict[int, nodes.ResponseSpec]) -> str:
+def _response_model(name: str, responses: dict[int, nodes.ResponseSpec]) -> str:
     """The success response's model name (``responses[200].model``)."""
+    if 200 not in responses:
+        raise SpecError(f"operation {name!r} has no 200 response model")
     return responses[200].model
 
 
@@ -143,7 +145,7 @@ def _operation(spec: nodes.OperationSpec) -> ir.Operation:
         operation_id=spec.operation_id,
         params=tuple(_param(param) for param in spec.params),
         body=_body(spec.body),
-        response_model=_response_model(spec.responses),
+        response_model=_response_model(spec.name, spec.responses),
         documentation=spec.documentation,
         mcp=_mcp(spec.mcp),
         cli=_cli(spec.cli),

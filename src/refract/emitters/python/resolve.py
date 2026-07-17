@@ -14,6 +14,7 @@ from refract.emitters.python.views import (
     TestsPageView,
 )
 from refract.ir import HeaderAuth, MultiHeaderAuth, ObjectModel, RootListModel, Safety, TestKind
+from refract.spec import SpecError
 
 # NB: `MultiHeaderAuth`/`HeaderAuth` here are the ir.auth DESCRIPTORS (AuthScheme variants) used
 # for the `match` below; the generated code imports the same-named httpx mechanisms from
@@ -278,8 +279,7 @@ def resolve_models(
     docstrings: Docstrings,
 ) -> ModelsPageView:
     """IR -> ModelsPageView: module docstring, imports (APIModel + pydantic + those collected
-    from types), finished classes. ``APIModel`` is always imported (as in the previous emitter).
-    """
+    from types), finished classes. ``APIModel`` is always imported."""
     imports: list[Import] = [Import(_shared_models_module(ctx), "APIModel")]
     if any(
         field.description
@@ -372,9 +372,8 @@ def _mcp_signature(
 ) -> tuple[list[str], list[Import]]:
     """Tool-function parameters in order: path, typed ``body``, query, then the DI client.
 
-    Path/query go through ``param_decl`` (TypeMapper) - the previous emitter took the already
-    prose-rendered ``param.type``. Parameters stay flat (not keyword-only): fastmcp reads them
-    as ordinary arguments."""
+    Path/query go through ``param_decl`` (TypeMapper). Parameters stay flat (not keyword-only):
+    fastmcp reads them as ordinary arguments."""
     parameters: list[str] = []
     imports: list[Import] = []
     for param in op.params:
@@ -416,8 +415,7 @@ def _mcp_tool(
 
     The def name is ``naming.module_function`` (``list`` -> ``list_``). The safety symbol goes
     into the generated code as ``meta.safety.value`` (the raw ``"RO"``/``"WRITE"``/...). The
-    guard is formatted as one logical ``require_found(...)`` call - ruff wraps it to match the
-    golden multi-line form."""
+    guard is formatted as one logical ``require_found(...)`` call - ruff wraps it across lines."""
     meta = op.mcp
     if meta is None:  # resolve_mcp only calls this for mcp-faceted ops - fail loud if that changes
         raise ValueError(f"{op.name}: operation has no mcp facet")
@@ -558,7 +556,7 @@ def _tests_constants(
 
     ``_URL`` is built from ``ctx.config.server.base_url`` (``base_url`` left ``Resource`` for
     ``ClientConfig``). ``response_json`` is authored data; ``!r`` produces a single-quote repr,
-    which ruff normalizes to double-quote (matching the golden). No type lowering is needed."""
+    which ruff normalizes to double-quote. No type lowering is needed."""
     if ctx.config is None:
         raise ValueError("tests surface requires ClientConfig (base_url)")
     lines = [f'_URL = "{ctx.config.server.base_url}/{op.path}"']
@@ -598,7 +596,8 @@ def _client_test(res: ir.Resource, case: ir.TestCase) -> str:
 
 def _cli_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
     """CLI case - ``CliRunner`` json-invoke of the ``<domain> <resource> <command>`` command."""
-    assert op.cli is not None
+    if op.cli is None:  # resolve_tests only calls this for cli-kind cases - fail loud otherwise
+        raise ValueError(f"{op.name}: operation has no cli facet")
     argv = ", ".join(
         f'"{token}"' for token in ("--format", "json", res.domain, res.resource, op.cli.name)
     )
@@ -614,7 +613,8 @@ def _cli_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
 
 def _mcp_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
     """MCP case - call the root-composed tool through ``root_mcp`` under ``asyncio.run``."""
-    assert op.mcp is not None
+    if op.mcp is None:  # resolve_tests only calls this for mcp-kind cases - fail loud otherwise
+        raise ValueError(f"{op.name}: operation has no mcp facet")
     root_tool = f"{res.domain}_{op.mcp.name}"
     lines = [
         "@responses.activate",
@@ -633,7 +633,8 @@ def _mcp_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
 
 def _guard_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
     """MCP guard case - the resource-local tool must raise ``ToolError`` (no asserts)."""
-    assert op.mcp is not None
+    if op.mcp is None:  # resolve_tests only calls this for guard cases - fail loud otherwise
+        raise ValueError(f"{op.name}: operation has no mcp facet")
     lines = ["@responses.activate", f"async def test_{case.name}(creds):"]
     if case.status == 200:
         lines.append(f'    """{_EMPTY_GUARD_DOC}"""')
@@ -648,13 +649,17 @@ def _guard_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
 
 def _test_block(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
     """Dispatch one authored ``TestCase`` to its per-kind renderer (identity on ``TestKind``)."""
-    if case.kind is TestKind.CLIENT:
-        return _client_test(res, case)
-    if case.kind is TestKind.CLI:
-        return _cli_test(res, op, case)
-    if case.kind is TestKind.MCP:
-        return _mcp_test(res, op, case)
-    return _guard_test(res, op, case)  # TestKind.MCP_GUARD
+    match case.kind:
+        case TestKind.CLIENT:
+            return _client_test(res, case)
+        case TestKind.CLI:
+            return _cli_test(res, op, case)
+        case TestKind.MCP:
+            return _mcp_test(res, op, case)
+        case TestKind.MCP_GUARD:
+            return _guard_test(res, op, case)
+        case _:
+            assert_never(case.kind)
 
 
 def resolve_tests(
@@ -709,7 +714,7 @@ def _select_scheme(config: ir.ClientConfig, security: str) -> ir.AuthScheme:
     for name, scheme in config.auth:
         if name == security:
             return scheme
-    raise KeyError(security)
+    raise SpecError(f"security {security!r} names no auth scheme in client.yaml")
 
 
 def resolve_root_client(

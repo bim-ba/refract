@@ -125,6 +125,32 @@ auth:
         SpecLoader.load_client_config(client_yaml)
 
 
+def test_operation_without_200_response_raises_spec_error(tmp_path: Path):
+    resource_yaml = tmp_path / "resource.yaml"
+    resource_yaml.write_text(
+        """
+domain: t
+resource: m
+security: s
+operations:
+  - name: get
+    method: GET
+    path: p
+    operationId: get
+    responses:
+      404: {model: Error}
+    mcp:
+      name: get
+      safety: RO
+      title: t
+      documentation: d
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match="'get' has no 200 response"):
+        SpecLoader.load(resource_yaml)
+
+
 def test_root_list_without_item_raises_spec_error(tmp_path: Path):
     resource_yaml = tmp_path / "resource.yaml"
     resource_yaml.write_text(

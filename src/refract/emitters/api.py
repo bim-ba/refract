@@ -52,9 +52,11 @@ class Naming(ABC):
     @abstractmethod
     def pascal(self, name: str) -> str: ...
     @abstractmethod
-    def module_function(self, name: str) -> str: ...  # module-level def-safe: list -> list_
+    # module-level def-safe: list -> list_
+    def module_function(self, name: str) -> str: ...
     @abstractmethod
-    def class_name(self, base: str, suffix: str) -> str: ...  # merges the 3 *_class helpers
+    # merges the 3 *_class helpers
+    def class_name(self, base: str, suffix: str) -> str: ...
 
 
 class TypeMapper(ABC):

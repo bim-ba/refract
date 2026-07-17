@@ -6,6 +6,7 @@ from refract.emitters.python import resolve
 from refract.emitters.python.docstrings import PythonDocstrings
 from refract.emitters.python.naming import PythonNaming
 from refract.emitters.python.types import PythonTypeMapper
+from refract.spec import SpecError
 
 NAMING = PythonNaming()
 TYPE_MAPPER = PythonTypeMapper()
@@ -85,9 +86,33 @@ def test_resolve_tests_raises_without_client_config(me_resource):
         resolve.resolve_tests(me_resource, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
 
 
-def test_select_scheme_raises_for_unknown_security_name():
+def test_cli_test_raises_without_cli_facet(me_resource):
+    op = me_resource.operations[0]
+    case = next(c for c in op.tests if c.kind is ir.TestKind.CLI)
+    bare_op = op.model_copy(update={"cli": None})
+    with pytest.raises(ValueError, match="no cli facet"):
+        resolve._cli_test(me_resource, bare_op, case)
+
+
+def test_mcp_test_raises_without_mcp_facet(me_resource):
+    op = me_resource.operations[0]
+    case = next(c for c in op.tests if c.kind is ir.TestKind.MCP)
+    bare_op = op.model_copy(update={"mcp": None})
+    with pytest.raises(ValueError, match="no mcp facet"):
+        resolve._mcp_test(me_resource, bare_op, case)
+
+
+def test_guard_test_raises_without_mcp_facet(me_resource):
+    op = me_resource.operations[0]
+    case = next(c for c in op.tests if c.kind is ir.TestKind.MCP_GUARD)
+    bare_op = op.model_copy(update={"mcp": None})
+    with pytest.raises(ValueError, match="no mcp facet"):
+        resolve._guard_test(me_resource, bare_op, case)
+
+
+def test_select_scheme_raises_spec_error_for_unknown_security_name():
     config = ir.ClientConfig(name="x", server=ir.Server(base_url="https://x"), auth=())
-    with pytest.raises(KeyError):
+    with pytest.raises(SpecError, match=r"nonexistent.*names no auth scheme"):
         resolve._select_scheme(config, "nonexistent")
 
 

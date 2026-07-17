@@ -29,7 +29,7 @@ class TestKind(StrEnum):
 
 class Field(_IR):
     name: str
-    type: NeutralType  # was: already-lowered Python string
+    type: NeutralType
     optional: bool = False
     default: str | None = None  # source text of an *explicit* spec default; else None
     alias: str | None = None
@@ -132,7 +132,7 @@ class ModuleDocs(_IR):
     cli_group_help: str | None = None
     mcp_server: str | None = None
     client_class: str | None = None
-    requests: str | None = None  # NEW: docstring for the _requests module (D)
+    requests: str | None = None  # docstring for the _requests module (D)
 
 
 class Resource(_IR):
