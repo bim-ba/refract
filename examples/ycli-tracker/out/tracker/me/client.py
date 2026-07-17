@@ -1,15 +1,14 @@
-"""Declarative Tracker /myself client (uplink) — transport ONLY."""
-
-import uplink
+"""Declarative Tracker /myself client - transport ONLY (thin sugar over request builders)."""
 
 from ycli.yandex.tracker.base import TrackerResource
-from ycli.yandex.tracker.me.models import Me
+
+from . import _requests
+from .models import Me
 
 
 class MeClient(TrackerResource):
     """Declarative HTTP for ``/myself``."""
 
-    @uplink.returns.json()
-    @uplink.get("myself")
-    def get(self) -> Me:  # ty: ignore[empty-body]
+    def get(self) -> Me:
         """``GET /myself`` → the authenticated ``Me`` (a safe auth probe)."""
+        return self._session.send(_requests.get())

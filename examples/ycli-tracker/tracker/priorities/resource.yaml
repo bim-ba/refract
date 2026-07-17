@@ -3,10 +3,7 @@ resource: priorities
 security: oauth_token
 module_docs:
   models: "Pydantic models for Tracker priorities (Priority + PriorityList + typed write bodies)."
-  client: |-
-    Declarative Tracker priorities client (uplink) — transport ONLY.
-
-    NOTE: no ``from __future__ import annotations`` — uplink reads annotations eagerly.
+  client: "Declarative Tracker priorities client - transport ONLY (thin sugar over request builders)."
   mcp: "Tracker priorities FastMCP tools (reads + writes, ARCH-3 honest annotations)."
   mcp_server: "tracker-priorities"
   client_class: "Declarative HTTP for ``/priorities`` (list + create + edit)."

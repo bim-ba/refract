@@ -1,4 +1,4 @@
-"""Tracker /myself resource — client + CLI + MCP, HTTP stubbed."""
+"""Tracker /myself resource - client + CLI + MCP, HTTP stubbed."""
 
 from __future__ import annotations
 
@@ -7,11 +7,10 @@ import json
 
 import pytest
 import responses
+import ycli.cli.app as cli
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from typer.testing import CliRunner
-
-import ycli.cli.app as cli
 from ycli.mcp import mcp as root_mcp
 from ycli.yandex.tracker.client import TrackerClient
 from ycli.yandex.tracker.me import mcp as me_mcp_module
@@ -60,7 +59,7 @@ async def test_me_mcp_auth_guard(creds):
 
 @responses.activate
 async def test_me_mcp_empty_response_guard(creds):
-    """200 with empty body hits the login-is-None guard (e.g. bad permissions → blank object)."""
+    """200 with empty body hits the login-is-None guard (e.g. bad permissions -> blank object)."""
     responses.add(responses.GET, _URL, json={}, status=200)
     async with Client(me_mcp_module.mcp) as client:
         with pytest.raises(ToolError):

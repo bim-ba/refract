@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import typer
-
 from ycli.cli.context import AppContext
 from ycli.cli.output import Serializer
 
@@ -12,7 +11,7 @@ app = typer.Typer(name="me", help="Tracker authenticated user.", no_args_is_help
 
 @app.callback()
 def _group() -> None:
-    """Group anchor — forces subcommand dispatch (no eager DI, so --help stays cred-free)."""
+    """Group anchor - forces subcommand dispatch (no eager DI, so --help stays cred-free)."""
 
 
 @app.command()
