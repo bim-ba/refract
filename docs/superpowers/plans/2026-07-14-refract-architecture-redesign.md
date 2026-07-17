@@ -5312,7 +5312,7 @@ git add -A && git commit -m "feat(surfaces): root_client glue (DomainEmitter)"
 
 **Interfaces:**
 - Consumes: реестр `@backend` (разд. 3.2/registry), все 5 стратегий (фаза 4), env (5.1), все 7 per-resource surface'ов (`package`, `models`, `requests`, `client`, `cli`, `mcp`, `tests`) + domain surface `root_client` (Task 7.8, `DomainEmitter`, разд. C).
-- Produces: `python_backend() -> LanguageBackend` (зарегистрирован под `"python"`; композиция, не наследование). `surfaces` = per-resource; `domain_surfaces=(RootClientEmitter(...),)` = per-API glue (root-client, разд. C/G10). Потребляется `Generator` через `get_backend("python")`.
+- Produces: `python_backend() -> LanguageBackend` (зарегистрирован под `"python"`; композиция, не наследование). `surfaces` = per-resource; `domain_surfaces=(RootClientSurface(...),)` = per-API glue (root-client, разд. C/G10). Потребляется `Generator` через `get_backend("python")`.
 
 - [ ] **Step 1: Написать падающие тесты**
 
@@ -5353,7 +5353,7 @@ from refract.emitters.python.surfaces.mcp import McpSurface
 from refract.emitters.python.surfaces.models import ModelsSurface
 from refract.emitters.python.surfaces.package import PackageSurface
 from refract.emitters.python.surfaces.requests import RequestsSurface
-from refract.emitters.python.surfaces.root_client import RootClientEmitter
+from refract.emitters.python.surfaces.root_client import RootClientSurface
 from refract.emitters.python.surfaces.tests import TestsSurface
 from refract.emitters.python.types import PythonTypeMapper
 from refract.emitters.registry import backend
@@ -5379,11 +5379,11 @@ def python_backend() -> LanguageBackend:
     return LanguageBackend(
         name="python", naming=naming, type_mapper=type_mapper, formatter=RuffFormatter(),
         docstrings=docstrings, layout=PythonLayout(), surfaces=surfaces,
-        domain_surfaces=(RootClientEmitter(*parts),),
+        domain_surfaces=(RootClientSurface(*parts),),
     )
 ```
 
-(Все non-package per-resource surface'ы имеют единый конструктор `(naming, type_mapper, docstrings, env)`; `PackageSurface()` - без стратегий. `RootClientEmitter` (Task 7.8, `DomainEmitter`) делит тот же конструктор `*parts` и бежит ОДИН раз над всеми ресурсами домена, а не per-resource - разд. C/G10.)
+(Все non-package per-resource surface'ы имеют единый конструктор `(naming, type_mapper, docstrings, env)`; `PackageSurface()` - без стратегий. `RootClientSurface` (Task 7.8, `DomainEmitter`) делит тот же конструктор `*parts` и бежит ОДИН раз над всеми ресурсами домена, а не per-resource - разд. C/G10.)
 
 - [ ] **Step 4: Прогнать - зелено** -> **Step 5: Commit** (`feat(python): @backend('python') composition (+ root_client domain surface)`)
 
@@ -5776,7 +5776,7 @@ git rm -r examples/ycli-tracker/golden
 - Test: сам себе тест (opt-in, `-m behavioral`).
 
 **Interfaces:**
-- Consumes: `RequestsSurface` (7.1), `ClientSurface` (7.2), `RootClientEmitter` (7.8), `RuffFormatter` (4.3), `refract.runtime` (разд. E - auth-agnostic `Session` + `httpx.Auth`-механизмы), `EmitContext` + `ir.ClientConfig` (разд. C/разд. I), `ir` (разд. B).
+- Consumes: `RequestsSurface` (7.1), `ClientSurface` (7.2), `RootClientSurface` (7.8), `RuffFormatter` (4.3), `refract.runtime` (разд. E - auth-agnostic `Session` + `httpx.Auth`-механизмы), `EmitContext` + `ir.ClientConfig` (разд. C/разд. I), `ir` (разд. B).
 - Produces: доказательство, что D-`_requests`/`client` **И генерируемый root-client glue** реально импортируются и исполняются: генерация -> валидный Python -> root-client строит auth-agnostic `Session` над `httpx.Client(auth=...)` из `ClientConfig` -> `send` парсит `response_model`. Auth сидит на инжектированном клиенте (`httpx.Auth`), не в `send()` (разд. E). `package_root` указывает на локальный `demopkg`, чьи `runtime`/`base`-модули реэкспортируют референс-рантайм `refract.runtime` (разд. E) - эмитированный код бежит против `refract.runtime`. Scope - D-ядро + glue; полный quartet (cli/mcp через ycli-рантайм) - интеграционный тест ycli (вне scope A, разд. 10). Маркирован `@pytest.mark.behavioral` (не в быстром гейте).
 
 - [ ] **Step 1: Зарегистрировать маркер** в `pyproject.toml`:
@@ -5808,7 +5808,7 @@ from refract.emitters.python.format import RuffFormatter
 from refract.emitters.python.naming import PythonNaming
 from refract.emitters.python.surfaces.client import ClientSurface
 from refract.emitters.python.surfaces.requests import RequestsSurface
-from refract.emitters.python.surfaces.root_client import RootClientEmitter
+from refract.emitters.python.surfaces.root_client import RootClientSurface
 from refract.emitters.python.types import PythonTypeMapper
 from refract.ir.types import ScalarType
 
@@ -5871,7 +5871,7 @@ def _write_pkg(tmp_path):
     (pkg / "widget" / "client.py").write_text(
         fmt.format(ClientSurface(*parts).emit(_WIDGET, ctx)), encoding="utf-8")
     (pkg / "client.py").write_text(  # root-client glue: DomainEmitter runs over the resource tuple
-        fmt.format(RootClientEmitter(*parts).emit((_WIDGET,), ctx)), encoding="utf-8")
+        fmt.format(RootClientSurface(*parts).emit((_WIDGET,), ctx)), encoding="utf-8")
     return pkg
 
 
