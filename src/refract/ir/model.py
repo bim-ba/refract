@@ -1,178 +1,111 @@
-"""The typed IR — frozen, language-neutral dataclasses describing one API resource.
-
-This is the *core product* of the generator: a spec (one YAML per resource, see
-``docs/design.md``) is parsed and validated by ``refract.loader`` into these dataclasses, and
-every emitter (``refract.emitters.<language>.<surface>``) reads ONLY this IR. Nothing here knows
-about Python, uplink, typer, or fastmcp — those are the Python emitter's concern — so a future
-``emitters/typescript/`` reads the identical IR.
-
-Design rules:
-- Everything is ``frozen=True`` (an IR value is immutable once loaded).
-- Collections are tuples (hashable, non-mutable) so a ``Resource`` is itself hashable.
-- Field names are spelled out in full (no abbreviations), matching the ycli house style.
-- ``Field.type`` (and every other ``type``/``default`` string in this module) is the
-  **already-lowered Python type-string** the emitters render verbatim (e.g. ``"int | None"``,
-  default text ``"None"``). The v2 neutral spec type system (``string|integer|list<T>|...`` +
-  ``optional``) lives one layer up, in the spec/loader — lowering neutral types to these strings
-  is the loader's job (see ``docs/design.md`` §2), not the IR's.
-"""
-
 from __future__ import annotations
 
-from dataclasses import dataclass
+from enum import StrEnum
+from typing import Annotated, Literal, Union
 
-__all__ = [
-    "Body",
-    "CliMeta",
-    "Field",
-    "McpMeta",
-    "Model",
-    "ModuleDocs",
-    "Operation",
-    "Param",
-    "RequireFound",
-    "Resource",
-    "TestCase",
-]
+from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import Field as PydanticField  # `Field` (below) is the IR model-field class
+
+from refract.ir.types import NeutralType
 
 
-@dataclass(frozen=True)
-class Field:
-    """One field of a model.
+class _IR(BaseModel):
+    model_config = ConfigDict(frozen=True)
 
-    ``optional`` mirrors the spec-level optionality (independent of how it was lowered into
-    ``type``/``default``) so downstream reasoning — e.g. whether a write-body model excludes the
-    field, whether a constructor argument is required — doesn't need to re-parse ``type``.
-    ``default`` is the *source text* of the default expression (e.g. ``"None"``, ``"[]"``) or
-    ``None`` to mean the field has no default rendered. ``description`` becomes both a pydantic
-    ``Field(description=...)`` and — for write-body models — the MCP JSON-schema description an
-    agent reads.
-    """
 
+class Safety(StrEnum):
+    RO = "RO"
+    WRITE = "WRITE"
+    WRITE_IDEMPOTENT = "WRITE_IDEMPOTENT"
+    DESTRUCTIVE = "DESTRUCTIVE"
+
+
+class TestKind(StrEnum):
+    CLIENT = "client"
+    CLI = "cli"
+    MCP = "mcp"
+    MCP_GUARD = "mcp_guard"
+
+
+class Field(_IR):
     name: str
-    type: str
+    type: NeutralType          # was: already-lowered Python string
     optional: bool = False
-    default: str | None = None
+    default: str | None = None  # source text of an *explicit* spec default; else None
     alias: str | None = None
     description: str | None = None
 
 
-@dataclass(frozen=True)
-class Model:
-    """A model definition. ``kind`` is ``object`` | ``root_list`` | ``envelope``.
-
-    - ``object``    — a normal ``APIModel`` subclass with ``fields``.
-    - ``root_list`` — a ``RootModel[list[<item>]]`` flat public list (``item`` names the element).
-    - ``envelope``  — an internal per-page ``{links, result: [...]}`` parse type (``fields``).
-    """
-
+class ObjectModel(_IR):
+    """A pydantic ``APIModel`` subclass with typed fields."""
+    kind: Literal["object"] = "object"
     name: str
     fields: tuple[Field, ...] = ()
-    kind: str = "object"
-    item: str | None = None
     documentation: str | None = None
-    config: tuple[tuple[str, str], ...] = ()  # e.g. (("extra", "allow"),) -> ConfigDict(extra=...)
 
 
-@dataclass(frozen=True)
-class Param:
-    """A request parameter. ``loc`` is ``path`` | ``query`` | ``body``.
-
-    ``alias`` renders an aliased query (``uplink.Query("perPage")``); ``default`` is the source
-    text of the parameter default (``"None"``, ``"0"``, ``"_PAGE_SIZE"``) or ``None`` for none.
-    """
-
+class RootListModel(_IR):
+    """A ``RootModel[list[item]]`` public list."""
+    kind: Literal["root_list"] = "root_list"
     name: str
-    loc: str
-    type: str = "str"
-    alias: str | None = None
+    item: str
+    documentation: str | None = None
+
+
+# discriminated union: `item` only on root_list, `fields` only on object -> illegal states
+# unrepresentable. envelope (paginated wrapper) is added WITH pagination, not speculatively.
+# dead `config` field dropped (0 spec instances, 0 emitter readers).
+Model = Annotated[Union[ObjectModel, RootListModel], PydanticField(discriminator="kind")]
+
+
+class Param(_IR):
+    name: str
+    loc: Literal["path", "query"]
+    type: NeutralType
+    optional: bool = False
     default: str | None = None
+    alias: str | None = None
     help: str | None = None
 
 
-@dataclass(frozen=True)
-class Body:
-    """The write-body registry entry for one operation (§7 design.md; ``TypedModel`` for now).
-
-    ``mode`` names the body strategy (``"TypedModel"`` — a hand-written pydantic model the caller
-    passes verbatim, split into an internal bodyless-JSON method + a public typed method, e.g.
-    ycli's ``PrioritiesClient.create``); ``model`` is that model's name; ``dump`` is the *source
-    text* of the ``model_dump(...)`` keyword arguments the client renders when serializing it
-    (e.g. ``"by_alias=True, exclude_none=True"``).
-    """
-
-    mode: str
+class Body(_IR):
+    mode: Literal["typed_model"] = "typed_model"
     model: str
-    dump: str
+    by_alias: bool = True       # -> model_dump(by_alias=...) rendered by the Python backend
+    omit_none: bool = True      # -> model_dump(exclude_none=...) rendered by the Python backend
 
 
-@dataclass(frozen=True)
-class RequireFound:
-    """The MCP empty-result guard, authored as data (not computed by the emitter).
-
-    A GET-by-id/lookup MCP tool that can legitimately return "nothing" (a sentinel empty value,
-    e.g. an empty list or ``None``) renders a guard that raises a caller-facing error instead of
-    silently returning the sentinel. ``sentinel`` is the source text of the empty-result check
-    (e.g. ``"not result"``); ``message`` is the error text raised when it matches.
-    """
-
+class RequireFound(_IR):
     sentinel: str
     message: str
 
 
-@dataclass(frozen=True)
-class McpMeta:
-    """The hand-tuned MCP facet of an operation: tool name, safety annotation, title, docstring.
-
-    ``safety`` is one of ``RO`` | ``WRITE`` | ``WRITE_IDEMPOTENT`` | ``DESTRUCTIVE`` — it drives
-    the emitted ``readOnlyHint``/``destructiveHint``/``idempotentHint`` tool annotations (ARCH-3
-    honesty in the ycli sense: the annotation must match what the tool actually does).
-    """
-
+class McpMeta(_IR):
     name: str
-    safety: str
+    safety: Safety
     title: str
     documentation: str
     require_found: RequireFound | None = None
 
 
-@dataclass(frozen=True)
-class CliMeta:
-    """The hand-tuned CLI facet of an operation: sub-command name + one-line help."""
-
+class CliMeta(_IR):
     name: str
     documentation: str
 
 
-@dataclass(frozen=True)
-class TestCase:
-    """A single authored test: a hardcoded fixture + authored asserts for one surface.
-
-    Every value here is DATA authored in the spec — the emitter never computes an assert.
-    ``kind`` is ``client`` | ``cli`` | ``mcp`` | ``mcp_guard`` (which surface's harness renders
-    this case; ``mcp_guard`` exercises a ``McpMeta.require_found`` guard). The stub answers
-    ``http_method`` on ``BASE/path`` with ``response_json`` (ignored when ``has_json`` is
-    ``False``, e.g. a 204); the test calls ``call`` and runs each string in ``asserts``.
-
-    All nine fields are required — a ``TestCase`` is only ever assembled by the loader/test
-    registry from a fully-specified fixture, never hand-defaulted by an emitter.
-    """
-
+class TestCase(_IR):
     name: str
-    kind: str
+    kind: TestKind
     http_method: str
     path: str
     status: int
-    response_json: object | None
+    response_json: JsonValue | None   # opaque JSON fixture; validated-at-boundary, repr()'d into tests
     has_json: bool
     asserts: tuple[str, ...]
     call: str
 
 
-@dataclass(frozen=True)
-class Operation:
-    """One API operation across all four surfaces (client / cli / mcp / tests)."""
-
+class Operation(_IR):
     name: str
     method: str
     path: str
@@ -187,15 +120,7 @@ class Operation:
     handler: str | None = None
 
 
-@dataclass(frozen=True)
-class ModuleDocs:
-    """The hand-tuned module-level docstrings for a resource's four emitted surfaces.
-
-    ``client_class``, if set, becomes the ``<Resource>Client`` class docstring (as opposed to
-    ``client``, the module docstring above it). ``cli_group_help``/``mcp_server`` are the
-    one-line help text for the CLI sub-command group / MCP server name, not full docstrings.
-    """
-
+class ModuleDocs(_IR):
     client: str | None = None
     models: str | None = None
     cli: str | None = None
@@ -203,25 +128,19 @@ class ModuleDocs:
     cli_group_help: str | None = None
     mcp_server: str | None = None
     client_class: str | None = None
+    requests: str | None = None  # NEW: docstring for the _requests module (D)
 
 
-@dataclass(frozen=True)
-class Resource:
-    """A whole resource: its domain, name, base URL, security, models, and operations."""
-
+class Resource(_IR):
     domain: str
     resource: str
-    base_url: str
-    security: str
+    security: str               # names an AuthScheme in ClientConfig.auth (base_url moved to ClientConfig)
     models: tuple[Model, ...]
     operations: tuple[Operation, ...]
     documentation: str | None = None
     module_docs: ModuleDocs = ModuleDocs()
 
-    # ---- convenience accessors the emitters use ----
-
     def model(self, name: str) -> Model:
-        """The model named ``name`` (raises ``KeyError`` if the spec never declared it)."""
         for candidate in self.models:
             if candidate.name == name:
                 return candidate
@@ -229,5 +148,4 @@ class Resource:
 
     @property
     def domain_title(self) -> str:
-        """The domain name capitalized for prose (``tracker`` -> ``Tracker``)."""
         return self.domain.capitalize()
