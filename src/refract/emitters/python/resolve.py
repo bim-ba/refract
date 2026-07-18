@@ -16,6 +16,8 @@ from refract.emitters.python.views import (
 )
 from refract.ir import (
     HeaderAuth,
+    ListType,
+    MapType,
     MultiHeaderAuth,
     ObjectModel,
     RefType,
@@ -425,6 +427,25 @@ def _handler_hint(op: ir.Operation, field: ir.Field) -> str:
     )
 
 
+def _require_object_model(op: ir.Operation, model: ir.Model) -> ObjectModel:
+    """Narrow a body/ref-target ``Model`` to ``ObjectModel`` - fail loud (not a bare ``assert``,
+    which ``python -O`` strips) when it names a ``RootListModel`` instead."""
+    if not isinstance(model, ObjectModel):
+        raise SpecError(f"{op.name}: body model {model.name!r} is not an object (needs handler:)")
+    return model
+
+
+def _reject_duplicate_options(op: ir.Operation, option_names: list[str]) -> None:
+    """Fail loud on a repeated flat option name (e.g. a scalar field literally named
+    ``<reffield>_<child>`` colliding with a flattened nested option) - two same-named typer
+    params would otherwise emit a ``SyntaxError`` in the generated code, silently."""
+    seen: set[str] = set()
+    for name in option_names:
+        if name in seen:
+            raise SpecError(f"{op.name}: CLI option name collision on {name!r} - needs handler:")
+        seen.add(name)
+
+
 def _assembled_options(
     res: ir.Resource, op: ir.Operation, type_mapper: TypeMapper, naming: Naming
 ) -> tuple[list[str], str, list[Import]]:
@@ -445,13 +466,13 @@ def _assembled_options(
     body = op.body
     if body is None:  # write-op only; a bodyless op reaching here is a wiring bug - fail loud
         raise ValueError(f"{op.name}: assembled options require a write body")
-    model = res.model(body.model)
-    assert isinstance(model, ObjectModel)  # a write body always names an object model
+    model = _require_object_model(op, res.model(body.model))
     # Shape-aligned with `_body_test_imports`: both walk the body model's one-level `ref<...>`
     # fields (third consumer -> extract a shared walker). Imports open with the body model (the
     # reassembly ctor); `.models` mirrors requests/client - the CLI wiring (D5b) supplies the
     # final module.
     option_decls: list[str] = []
+    option_names: list[str] = []
     reassembly: list[str] = []
     imports: list[Import] = [Import(".models", body.model)]
     for field in model.fields:
@@ -459,24 +480,28 @@ def _assembled_options(
             case ScalarType():
                 decl, decl_imports = _option_decl(field.name, field, type_mapper)
                 option_decls.append(decl)
+                option_names.append(field.name)
                 imports += decl_imports
                 reassembly.append(f"{field.name}={field.name}")
             case RefType(target=target):
-                nested = res.model(target)
-                assert isinstance(nested, ObjectModel)  # a one-level ref targets an object model
+                nested = _require_object_model(op, res.model(target))
                 inner: list[str] = []
                 for child in nested.fields:
-                    if not isinstance(child.type, ScalarType):  # two-level nest -> escape hatch
-                        raise SpecError(_handler_hint(op, field))
-                    option_name = naming.cli_option(field.name, child.name)
-                    decl, decl_imports = _option_decl(option_name, child, type_mapper)
-                    option_decls.append(decl)
-                    imports += decl_imports
-                    inner.append(f"{child.name}={option_name}")
+                    match child.type:
+                        case ScalarType():
+                            option_name = naming.cli_option(field.name, child.name)
+                            decl, decl_imports = _option_decl(option_name, child, type_mapper)
+                            option_decls.append(decl)
+                            option_names.append(option_name)
+                            imports += decl_imports
+                            inner.append(f"{child.name}={option_name}")
+                        case RefType() | ListType() | MapType():  # two-level nest -> escape hatch
+                            raise SpecError(_handler_hint(op, field))
                 imports.append(Import(".models", target))
                 reassembly.append(f"{field.name}={target}({', '.join(inner)})")
-            case _:  # map<...>, list<...> - not flattenable to scalar leaves
+            case ListType() | MapType():  # not flattenable to scalar leaves
                 raise SpecError(_handler_hint(op, field))
+    _reject_duplicate_options(op, option_names)
     return option_decls, f"{body.model}({', '.join(reassembly)})", imports
 
 

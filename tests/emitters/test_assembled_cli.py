@@ -127,6 +127,64 @@ def test_assembled_options_rejects_two_level_ref():
         resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
 
 
+def test_assembled_options_rejects_ref_to_root_list_target():
+    """A ref field targeting a `root_list` model can't be narrowed to scalar children - fail loud
+    with a `SpecError` (not the bare `AssertionError` `python -O` would strip)."""
+    tags = ir.RootListModel(name="Tags", item="str")
+    outer = ir.ObjectModel(
+        name="Outer", fields=(ir.Field(name="tags", type=ir.RefType(target="Tags")),)
+    )
+    res = ir.Resource(
+        domain="tracker",
+        resource="things",
+        security="oauth_token",
+        models=(outer, tags),
+        operations=(
+            ir.Operation(
+                name="write",
+                method="POST",
+                path="things",
+                operation_id="things_write",
+                body=ir.Body(model="Outer"),
+            ),
+        ),
+    )
+    with pytest.raises(SpecError, match=r"not an object.*handler:"):
+        resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
+
+
+def test_assembled_options_rejects_option_name_collision():
+    """A scalar field literally named `<reffield>_<child>` collides with the flattened option
+    generated for that ref field's child - two same-named typer params is a silent wiring bug
+    (`SyntaxError` in the generated code), so it must fail loud instead."""
+    localized_name = ir.ObjectModel(
+        name="LocalizedName", fields=(ir.Field(name="ru", type=_STRING),)
+    )
+    model = ir.ObjectModel(
+        name="Collide",
+        fields=(
+            ir.Field(name="name", type=ir.RefType(target="LocalizedName")),
+            ir.Field(name="name_ru", type=_STRING),
+        ),
+    )
+    op = ir.Operation(
+        name="write",
+        method="POST",
+        path="things",
+        operation_id="things_write",
+        body=ir.Body(model="Collide"),
+    )
+    res = ir.Resource(
+        domain="tracker",
+        resource="things",
+        security="oauth_token",
+        models=(model, localized_name),
+        operations=(op,),
+    )
+    with pytest.raises(SpecError, match="collision"):
+        resolve._assembled_options(res, op, TYPE_MAPPER, NAMING)
+
+
 def test_assembled_options_requires_write_body():
     """A bodyless op reaching the builder is a wiring bug - fail loud (mirrors `_cli_command`)."""
     op = ir.Operation(name="get", method="GET", path="things", operation_id="things_get")
