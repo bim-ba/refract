@@ -5,7 +5,8 @@ import pytest
 from refract import ir
 from refract.ir.model import ObjectModel, RootListModel
 from refract.ir.types import RefType, ScalarType
-from refract.spec.loader import SpecError, SpecLoader
+from refract.spec import nodes
+from refract.spec.loader import SpecError, SpecLoader, _response_model
 
 _EX = Path(__file__).resolve().parent.parent.parent / "examples" / "ycli-tracker"
 
@@ -130,7 +131,7 @@ auth:
         SpecLoader.load_client_config(client_yaml)
 
 
-def test_operation_without_200_response_raises_spec_error(tmp_path: Path):
+def test_operation_without_2xx_response_raises_spec_error(tmp_path: Path):
     resource_yaml = tmp_path / "resource.yaml"
     resource_yaml.write_text(
         """
@@ -152,8 +153,26 @@ operations:
 """,
         encoding="utf-8",
     )
-    with pytest.raises(SpecError, match="'get' has no 200 response"):
+    with pytest.raises(SpecError, match="'get' has no 2xx response"):
         SpecLoader.load(resource_yaml)
+
+
+def _resp(model: str | None) -> nodes.ResponseSpec:
+    return nodes.ResponseSpec(model=model)
+
+
+def test_response_model_prefers_first_2xx():
+    responses = {201: _resp("Created"), 200: _resp("Ok")}
+    assert _response_model("op", responses) == "Ok"  # 200 < 201
+
+
+def test_response_model_none_for_bodyless_2xx():
+    assert _response_model("delete", {204: _resp(None)}) is None
+
+
+def test_response_model_no_2xx_raises_spec_error():
+    with pytest.raises(SpecError, match="no 2xx response"):
+        _response_model("op", {404: _resp("Error")})
 
 
 def test_root_list_without_item_raises_spec_error(tmp_path: Path):

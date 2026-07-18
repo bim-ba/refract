@@ -130,11 +130,12 @@ def _test(spec: nodes.TestSpec) -> ir.TestCase:
     )
 
 
-def _response_model(name: str, responses: dict[int, nodes.ResponseSpec]) -> str:
-    """The success response's model name (``responses[200].model``)."""
-    if 200 not in responses:
-        raise SpecError(f"operation {name!r} has no 200 response model")
-    return responses[200].model
+def _response_model(name: str, responses: dict[int, nodes.ResponseSpec]) -> str | None:
+    """The first-2xx success model name, or None for a bodyless success. SpecError if no 2xx."""
+    success = [status for status in responses if 200 <= status < 300]
+    if not success:
+        raise SpecError(f"operation {name!r} has no 2xx response")
+    return responses[min(success)].model
 
 
 def _operation(spec: nodes.OperationSpec) -> ir.Operation:
