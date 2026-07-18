@@ -297,6 +297,36 @@ def test_cli_command_write_op_threads_path_and_query_params():
     assert "app_ctx.tracker.things.edit(thing_id, Thing(label=label), notify=notify)" in block
 
 
+def test_cli_command_rejects_body_option_colliding_with_query_param():
+    """I1: `_assembled_options` dedups body options internally, but a body field name can still
+    collide with a path/query param name - both become function parameters, and two same-named
+    params are a duplicate-argument `SyntaxError` in the generated command. Reject at the cause
+    with a `SpecError`, not downstream at compile time.
+    """
+    thing = ir.ObjectModel(name="Thing", fields=(ir.Field(name="label", type=_STRING),))
+    edit = ir.Operation(
+        name="edit",
+        method="POST",
+        path="things/{thing_id}",
+        operation_id="things_edit",
+        params=(
+            ir.Param(name="thing_id", loc="path", type=_STRING),
+            ir.Param(name="label", loc="query", type=ir.ScalarType(scalar="boolean")),
+        ),
+        body=ir.Body(model="Thing"),
+        cli=ir.CliMeta(name="edit", documentation="Edit a thing."),
+    )
+    res = ir.Resource(
+        domain="tracker",
+        resource="things",
+        security="oauth_token",
+        models=(thing,),
+        operations=(edit,),
+    )
+    with pytest.raises(SpecError, match=r"collision.*label|label.*collision"):
+        resolve._cli_command(res, edit, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+
+
 def test_cli_command_read_op_unchanged():
     """A read op (no body) keeps the byte-identical param-less passthrough and pulls no imports."""
     get_op = ir.Operation(

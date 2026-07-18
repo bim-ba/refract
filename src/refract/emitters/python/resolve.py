@@ -424,7 +424,13 @@ def _cli_write_parts(
         else:  # query
             query_decls.append(decl)
             query_kwargs.append(f"{safe}={safe}")
-    no_default, with_default = _partition_by_default([*option_decls, *path_decls, *query_decls])
+    all_decls = [*option_decls, *path_decls, *query_decls]
+    # `_assembled_options` dedups the body options internally, but a body option can still collide
+    # with a path/query param name - both land in the same command signature, and two same-named
+    # parameters are a duplicate-argument SyntaxError. Reject across all sources at the cause (a
+    # decl is `name: type[ = default]`, so the name is the token before the first colon).
+    _reject_duplicate_options(op, [decl.split(":", 1)[0].strip() for decl in all_decls])
+    no_default, with_default = _partition_by_default(all_decls)
     signature_tail = "".join(f", {decl}" for decl in (*no_default, *with_default))
     call_args = ", ".join((*path_names, reassembly_expr, *query_kwargs))
     imports = _remap_to_resource_models(ctx, res, [*model_imports, *param_imports])
@@ -547,9 +553,10 @@ def _require_object_model(op: ir.Operation, model: ir.Model) -> ObjectModel:
 
 
 def _reject_duplicate_options(op: ir.Operation, option_names: list[str]) -> None:
-    """Fail loud on a repeated flat option name (e.g. a scalar field literally named
-    ``<reffield>_<child>`` colliding with a flattened nested option) - two same-named typer
-    params would otherwise emit a ``SyntaxError`` in the generated code, silently."""
+    """Fail loud on a repeated flat parameter name - a scalar field literally named
+    ``<reffield>_<child>`` colliding with a flattened nested option (within the body), OR a body
+    option colliding with a path/query param name (across sources). Two same-named parameters
+    would otherwise emit a duplicate-argument ``SyntaxError`` in the generated command, silently."""
     seen: set[str] = set()
     for name in option_names:
         if name in seen:
