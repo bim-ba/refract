@@ -290,6 +290,32 @@ def test_cli_page_remaps_model_imports_to_absolute():
     assert all(not line.startswith("from .models") for line in page.import_lines)
 
 
+def test_cli_page_remap_passes_through_non_models_import():
+    """N1: `_remap_to_resource_models` only rewrites ``.models`` imports; a non-``.models`` import
+    (here a body field of scalar type ``any``, which lowers to ``typing.Any`` and pulls
+    ``Import("typing", "Any")``) must survive the remap untouched, not get dropped or rewritten."""
+    model = ir.ObjectModel(
+        name="Widget", fields=(ir.Field(name="payload", type=ir.ScalarType(scalar="any")),)
+    )
+    op = ir.Operation(
+        name="create",
+        method="POST",
+        path="widgets",
+        operation_id="widgets_create",
+        body=ir.Body(model="Widget"),
+        cli=ir.CliMeta(name="create", documentation="Create a widget."),
+    )
+    res = ir.Resource(
+        domain="tracker",
+        resource="widgets",
+        security="oauth_token",
+        models=(model,),
+        operations=(op,),
+    )
+    page = resolve.resolve_cli(res, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert "from typing import Any" in page.import_lines
+
+
 def test_cli_command_write_op_threads_path_and_query_params():
     """Path params forward positionally (before the reassembled body); query as `name=name`."""
     thing = ir.ObjectModel(name="Thing", fields=(ir.Field(name="label", type=_STRING),))

@@ -31,7 +31,13 @@ def _remap_to_resource_models(
     Non-``.models`` imports (path/query scalar types) pass through untouched.
     """
     models_module = f"{ctx.package_root}.{res.resource}.models"
-    return [Import(models_module, imp.name) if imp.module == ".models" else imp for imp in imports]
+    remapped: list[Import] = []
+    for imp in imports:
+        if imp.module == ".models":
+            remapped.append(Import(models_module, imp.name))
+        else:
+            remapped.append(imp)
+    return remapped
 
 
 def _partition_by_default(decls: list[str]) -> tuple[list[str], list[str]]:
