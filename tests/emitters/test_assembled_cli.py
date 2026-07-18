@@ -11,13 +11,17 @@ from __future__ import annotations
 import pytest
 
 from refract import ir
+from refract.emitters.api import EmitContext
 from refract.emitters.python import resolve
+from refract.emitters.python.docstrings import PythonDocstrings
 from refract.emitters.python.naming import PythonNaming
 from refract.emitters.python.types import PythonTypeMapper
 from refract.spec import SpecError
 
 NAMING = PythonNaming()
 TYPE_MAPPER = PythonTypeMapper()
+DOCSTRINGS = PythonDocstrings()
+CTX = EmitContext(package_root="ycli.yandex.tracker")
 
 _STRING = ir.ScalarType(scalar="string")
 
@@ -47,6 +51,7 @@ def _priorities_like_resource() -> ir.Resource:
         operation_id="priorities_create",
         body=ir.Body(model="PriorityCreate"),
         response_model="Priority",
+        cli=ir.CliMeta(name="create", documentation="Create a priority."),
     )
     return ir.Resource(
         domain="tracker",
@@ -197,3 +202,88 @@ def test_assembled_options_requires_write_body():
     )
     with pytest.raises(ValueError, match="write body"):
         resolve._assembled_options(res, op, TYPE_MAPPER, NAMING)
+
+
+# --- Task 9 (D5b): `_cli_command` wires the assembled options into a write command ---
+
+
+def test_cli_command_write_op_assembles_body():
+    """A write op's command carries the flat options and forwards the reassembled body."""
+    res = _priorities_like_resource()
+    op = res.operations[0]
+    block, _imports = resolve._cli_command(res, op, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert "def create(ctx: typer.Context, key: str, name_ru: str | None = None" in block
+    assert "name_en: str | None = None" in block  # one-level ref<LocalizedName> flattened
+    assert (
+        "Serializer.serialize(app_ctx.tracker.priorities.create("
+        "PriorityCreate(key=key, name=LocalizedName(ru=name_ru, en=name_en), "
+        "order=order, description=description)), app_ctx.strategy, app_ctx.console)"
+    ) in block
+
+
+def test_cli_page_remaps_model_imports_to_absolute():
+    """Finding #5 regression: the relative `.models` `_assembled_options` emits is remapped to the
+    resource's ABSOLUTE models module (``.models`` would wrongly resolve inside the cli package)."""
+    res = _priorities_like_resource()
+    page = resolve.resolve_cli(res, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert (
+        "from ycli.yandex.tracker.priorities.models import LocalizedName, PriorityCreate"
+        in page.import_lines
+    )
+    assert all(not line.startswith("from .models") for line in page.import_lines)
+
+
+def test_cli_command_write_op_threads_path_and_query_params():
+    """Path params forward positionally (before the reassembled body); query as `name=name`."""
+    thing = ir.ObjectModel(name="Thing", fields=(ir.Field(name="label", type=_STRING),))
+    edit = ir.Operation(
+        name="edit",
+        method="POST",
+        path="things/{thing_id}",
+        operation_id="things_edit",
+        params=(
+            ir.Param(name="thing_id", loc="path", type=_STRING),
+            ir.Param(name="notify", loc="query", type=ir.ScalarType(scalar="boolean")),
+        ),
+        body=ir.Body(model="Thing"),
+        cli=ir.CliMeta(name="edit", documentation="Edit a thing."),
+    )
+    res = ir.Resource(
+        domain="tracker",
+        resource="things",
+        security="oauth_token",
+        models=(thing,),
+        operations=(edit,),
+    )
+    block, _imports = resolve._cli_command(res, edit, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert "def edit(ctx: typer.Context, label: str, thing_id: str, notify: bool) -> None:" in block
+    assert "app_ctx.tracker.things.edit(thing_id, Thing(label=label), notify=notify)" in block
+
+
+def test_cli_command_read_op_unchanged():
+    """A read op (no body) keeps the byte-identical param-less passthrough and pulls no imports."""
+    get_op = ir.Operation(
+        name="get",
+        method="GET",
+        path="me",
+        operation_id="me_get",
+        cli=ir.CliMeta(
+            name="get", documentation="Print the authenticated user (a safe auth probe)."
+        ),
+    )
+    res = ir.Resource(
+        domain="tracker",
+        resource="me",
+        security="oauth_token",
+        models=(),
+        operations=(get_op,),
+    )
+    block, imports = resolve._cli_command(res, get_op, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert imports == []
+    assert block == (
+        "@app.command()\n"
+        "def get(ctx: typer.Context) -> None:\n"
+        '    """Print the authenticated user (a safe auth probe)."""\n'
+        "    app_ctx = AppContext.from_typer_context(ctx)\n"
+        "    Serializer.serialize(app_ctx.tracker.me.get(), app_ctx.strategy, app_ctx.console)"
+    )

@@ -13,6 +13,7 @@ from refract.spec import SpecError
 NAMING = PythonNaming()
 TYPE_MAPPER = PythonTypeMapper()
 DOCSTRINGS = PythonDocstrings()
+CTX = EmitContext(package_root="ycli.yandex.tracker")
 
 
 def test_render_imports_groups_and_merges():
@@ -88,7 +89,7 @@ def test_model_field_with_alias_emits_field_alias():
 def test_cli_command_raises_without_cli_facet(me_resource):
     op = me_resource.operations[0].model_copy(update={"cli": None})
     with pytest.raises(ValueError, match="no cli facet"):
-        resolve._cli_command(me_resource, op, DOCSTRINGS)
+        resolve._cli_command(me_resource, op, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
 
 
 def test_mcp_tool_raises_without_mcp_facet(me_resource):

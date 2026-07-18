@@ -342,25 +342,86 @@ def resolve_models(
 _GROUP_DOC = "Group anchor - forces subcommand dispatch (no eager DI, so --help stays cred-free)."
 
 
-def _cli_command(res: ir.Resource, op: ir.Operation, docstrings: Docstrings) -> str:
-    """The finished text for one passthrough ``@app.command()`` leaf.
+def _remap_to_resource_models(
+    ctx: EmitContext, res: ir.Resource, imports: list[Import]
+) -> list[Import]:
+    """Rewrite each ``.models`` relative import to the resource's ABSOLUTE models module.
 
-    Param-less (mirrors the current `me` emitter): resolves ``AppContext`` and forwards the call
-    to ``app_ctx.<domain>.<resource>.<op>()`` through ``Serializer.serialize``. The command name
-    is author-controlled via ``op.cli.name`` (not necessarily ``op.name``).
+    ``_assembled_options`` mirrors requests/client with ``Import(".models", X)``, but inside the
+    generated cli package (``ycli.cli``) ``.models`` resolves to ``ycli.cli.models`` - wrong. The
+    absolute target is the same one ``resolve_mcp`` uses: ``<package_root>.<resource>.models``.
+    Non-``.models`` imports (path/query scalar types) pass through untouched.
+    """
+    models_module = f"{ctx.package_root}.{res.resource}.models"
+    return [Import(models_module, imp.name) if imp.module == ".models" else imp for imp in imports]
+
+
+def _cli_write_parts(
+    res: ir.Resource, op: ir.Operation, ctx: EmitContext, naming: Naming, type_mapper: TypeMapper
+) -> tuple[str, str, list[Import]]:
+    """``(signature_tail, call_args, imports)`` for one write command.
+
+    ``signature_tail`` is the ``, <options>, <path>, <query>`` suffix rendered after ``ctx`` (flat
+    options from ``_assembled_options``, then path/query decls via ``param_decl``). ``call_args``
+    forwards path names (positional), the reassembled body expr, then ``name=name`` query kwargs -
+    matching the client method's ``(path, body, *, query)`` order. Imports are the body/ref model
+    imports (remapped from relative ``.models`` to the resource's absolute module) plus path/query
+    scalar-type imports.
+    """
+    option_decls, reassembly_expr, model_imports = _assembled_options(res, op, type_mapper, naming)
+    path_decls: list[str] = []
+    path_names: list[str] = []
+    query_decls: list[str] = []
+    query_kwargs: list[str] = []
+    param_imports: list[Import] = []
+    for param in op.params:
+        decl, decl_imports = param_decl(param, type_mapper)
+        param_imports += decl_imports
+        if param.loc == "path":
+            path_decls.append(decl)
+            path_names.append(param.name)
+        else:  # query
+            query_decls.append(decl)
+            query_kwargs.append(f"{param.name}={param.name}")
+    signature_tail = "".join(f", {decl}" for decl in (*option_decls, *path_decls, *query_decls))
+    call_args = ", ".join((*path_names, reassembly_expr, *query_kwargs))
+    imports = _remap_to_resource_models(ctx, res, [*model_imports, *param_imports])
+    return signature_tail, call_args, imports
+
+
+def _cli_command(
+    res: ir.Resource,
+    op: ir.Operation,
+    ctx: EmitContext,
+    naming: Naming,
+    type_mapper: TypeMapper,
+    docstrings: Docstrings,
+) -> tuple[str, list[Import]]:
+    """The finished text (+ model imports) for one ``@app.command()`` leaf.
+
+    A READ op (no body) stays the param-less passthrough (byte-identical to the `me` emitter):
+    resolves ``AppContext`` and forwards ``app_ctx.<domain>.<resource>.<op>()`` through
+    ``Serializer.serialize``, pulling no imports. A WRITE op (``op.body``) carries the assembled
+    flat options (+ path/query params) in its signature, reassembles the typed body, and forwards
+    ``app_ctx.<d>.<r>.<op>(<path>, <body>, <query>)``. The command name is author-controlled via
+    ``op.cli.name`` (not necessarily ``op.name``).
     """
     meta = op.cli
     if meta is None:  # resolve_cli only calls this for cli-faceted ops - fail loud if that changes
         raise ValueError(f"{op.name}: operation has no cli facet")
-    call = f"app_ctx.{res.domain}.{res.resource}.{op.name}()"
+    if op.body is None:  # read: param-less passthrough (unchanged)
+        signature_tail, call_args, imports = "", "", []
+    else:  # write: flat options -> reassembled typed body
+        signature_tail, call_args, imports = _cli_write_parts(res, op, ctx, naming, type_mapper)
+    call = f"app_ctx.{res.domain}.{res.resource}.{op.name}({call_args})"
     lines = [
         "@app.command()",
-        f"def {meta.name}(ctx: typer.Context) -> None:",
+        f"def {meta.name}(ctx: typer.Context{signature_tail}) -> None:",
         *docstrings.render(meta.documentation, "    "),
         "    app_ctx = AppContext.from_typer_context(ctx)",
         f"    Serializer.serialize({call}, app_ctx.strategy, app_ctx.console)",
     ]
-    return "\n".join(lines)
+    return "\n".join(lines), imports
 
 
 def resolve_cli(
@@ -383,16 +444,24 @@ def resolve_cli(
         ]
     )
     blocks = [group_block]
+    command_imports: list[Import] = []
     for op in res.operations:
         if op.cli is not None:
-            blocks.append(_cli_command(res, op, docstrings))
+            text, cmd_imports = _cli_command(res, op, ctx, naming, type_mapper, docstrings)
+            blocks.append(text)
+            command_imports += cmd_imports
     return CliPageView(
         doc_block=docstrings.render(res.module_docs.cli, ""),
         header_lines=("from __future__ import annotations",),
         import_lines=(
             "import typer",
-            "from ycli.cli.context import AppContext",
-            "from ycli.cli.output import Serializer",
+            *render_imports(
+                (
+                    Import("ycli.cli.context", "AppContext"),
+                    Import("ycli.cli.output", "Serializer"),
+                    *command_imports,
+                )
+            ),
         ),
         blocks=tuple(blocks),
     )
