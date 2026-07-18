@@ -19,7 +19,15 @@ from refract.ir.model import (
     TestCase,
     TestKind,
 )
-from refract.ir.types import ListType, MapType, NeutralType, RefType, ScalarType
+from refract.ir.types import (
+    ListType,
+    LiteralType,
+    MapType,
+    NeutralType,
+    RefType,
+    ScalarType,
+    UnionType,
+)
 
 __all__ = [
     "AuthInput",
@@ -30,6 +38,7 @@ __all__ = [
     "Field",
     "HeaderAuth",
     "ListType",
+    "LiteralType",
     "MapType",
     "McpMeta",
     "Model",
@@ -48,4 +57,5 @@ __all__ = [
     "Server",
     "TestCase",
     "TestKind",
+    "UnionType",
 ]

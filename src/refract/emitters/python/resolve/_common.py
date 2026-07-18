@@ -4,8 +4,7 @@ import json
 from collections import defaultdict
 from typing import TYPE_CHECKING, assert_never
 
-from refract.ir import ListType, MapType, ObjectModel, RefType, ScalarType
-from refract.ir.types import LiteralType, UnionType
+from refract.ir import ListType, LiteralType, MapType, ObjectModel, RefType, ScalarType, UnionType
 
 if TYPE_CHECKING:
     from refract import ir

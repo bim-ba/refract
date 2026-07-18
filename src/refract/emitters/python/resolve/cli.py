@@ -9,8 +9,7 @@ from refract.emitters.python.resolve._common import (
     render_imports,
 )
 from refract.emitters.python.views import CliPageView
-from refract.ir import ListType, MapType, ObjectModel, RefType, ScalarType
-from refract.ir.types import LiteralType, UnionType
+from refract.ir import ListType, LiteralType, MapType, ObjectModel, RefType, ScalarType, UnionType
 from refract.spec import SpecError
 
 if TYPE_CHECKING:
@@ -243,8 +242,8 @@ def _assembled_options(
     ``name: Type`` reassembled ``name=name``; a one-level ``ref<Target>`` field fans Target's
     scalar fields into ``<parent>_<child>`` options reassembled
     ``parent=Target(child=<parent>_<child>, ...)``. Any shape past scalar + one-level-ref (map,
-    list, a ref nested two levels down) is the Q1 escape hatch - a ``SpecError`` naming the field
-    (the ``handler:`` escape is planned but not yet wired into any emitter).
+    list, union, literal, a ref nested two levels down) is the Q1 escape hatch - a ``SpecError``
+    naming the field (the ``handler:`` escape is planned but not yet wired into any emitter).
 
     Returns ``(option_decls, reassembly_expr, imports)``. For a PriorityCreate {key, name:
     ref<LocalizedName>{ru?, en?}, order?, description?} body the expr is exactly
