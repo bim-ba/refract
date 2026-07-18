@@ -10,4 +10,4 @@ def test_request_constructs_frozen_with_empty_defaults():
     assert (req.method, req.path, req.response_model) == ("GET", "myself", dict)
     assert req.query is None and req.json_body is None
     with pytest.raises(dataclasses.FrozenInstanceError):
-        req.method = "POST"  # frozen + slots
+        req.method = "POST"  # ty: ignore[invalid-assignment]  # frozen + slots

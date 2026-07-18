@@ -28,7 +28,7 @@ def _resource() -> ir.Resource:
 def test_value_objects_are_frozen():
     rt = RenderedType(text="x")
     with pytest.raises(dataclasses.FrozenInstanceError):
-        rt.text = "y"  # frozen dataclass
+        rt.text = "y"  # ty: ignore[invalid-assignment]  # frozen dataclass
 
 
 def test_rendered_type_defaults_empty_imports():
@@ -38,6 +38,7 @@ def test_rendered_type_defaults_empty_imports():
 def test_emit_context_carries_package_root_and_config():
     ctx = EmitContext(package_root="ycli.yandex.tracker", config=_config())
     assert ctx.package_root == "ycli.yandex.tracker"
+    assert ctx.config is not None  # narrow ClientConfig | None before attribute access
     assert ctx.config.server.base_url == "https://api.tracker.yandex.net/v3"
 
 

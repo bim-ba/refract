@@ -47,4 +47,4 @@ def test_auth_scheme_is_frozen():
         inputs=(AuthInput(name="token", env="API_TOKEN"),),
     )
     with pytest.raises(ValidationError):
-        scheme.header = "X"  # frozen
+        scheme.header = "X"  # ty: ignore[invalid-assignment]  # frozen

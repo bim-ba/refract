@@ -140,7 +140,8 @@ def test_generated_root_client_imports_and_sends(tmp_path, monkeypatch):
     try:
         # builders are pure - no I/O
         requests_mod = importlib.import_module("demopkg.widget._requests")
-        from demopkg.widget.models import Widget, WidgetCreate
+        # models are generated into tmp_path at runtime -> unresolvable statically
+        from demopkg.widget.models import Widget, WidgetCreate  # ty: ignore[unresolved-import]
 
         assert requests_mod.get().path == "widget"
         assert requests_mod.create(WidgetCreate(name="x")).json_body == {"name": "x"}

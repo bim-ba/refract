@@ -37,7 +37,7 @@ def test_map_is_recursive_both_sides():
 def test_variants_are_frozen_and_hashable():
     s = ScalarType(scalar="string")
     with pytest.raises(ValidationError):
-        s.scalar = "integer"  # frozen
+        s.scalar = "integer"  # ty: ignore[invalid-assignment]  # frozen
     assert hash(s) == hash(ScalarType(scalar="string"))
     assert {s, ScalarType(scalar="string")} == {s}  # dedups -> hashable
 

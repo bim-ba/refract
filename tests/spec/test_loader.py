@@ -14,7 +14,9 @@ def test_loads_me_as_neutral_ir():
     res = SpecLoader.load(_EX / "tracker" / "me" / "resource.yaml")
     assert res.domain == "tracker" and res.resource == "me"
     assert not hasattr(res, "base_url")  # base_url moved to client.yaml
-    uid = res.model("Me").fields[0]
+    me = res.model("Me")
+    assert isinstance(me, ObjectModel)  # narrow the model union before field access
+    uid = me.fields[0]
     assert uid.name == "uid"
     assert uid.type == ScalarType(scalar="integer")  # neutral, NOT "int | None"
     assert uid.optional is True
@@ -28,10 +30,13 @@ def test_me_model_is_object_variant():
 
 def test_priorities_model_variants_and_ref_field():
     res = SpecLoader.load(_EX / "tracker" / "priorities" / "resource.yaml")
-    assert isinstance(res.model("PriorityList"), RootListModel)
-    assert res.model("PriorityList").item == "Priority"
+    plist = res.model("PriorityList")
+    assert isinstance(plist, RootListModel)
+    assert plist.item == "Priority"
     assert isinstance(res.model("Priority"), ObjectModel)
-    name = res.model("PriorityCreate").fields[1]
+    create = res.model("PriorityCreate")
+    assert isinstance(create, ObjectModel)
+    name = create.fields[1]
     assert name.type == RefType(target="LocalizedName")
 
 

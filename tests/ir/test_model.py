@@ -47,7 +47,7 @@ def test_resource_is_frozen_and_hashable():
     )
     assert hash(res)  # tuple collections keep it hashable
     with pytest.raises(ValidationError):
-        res.domain = "x"  # frozen
+        res.domain = "x"  # ty: ignore[invalid-assignment]  # frozen
 
 
 def test_list_input_is_coerced_to_tuple():
@@ -88,4 +88,4 @@ def test_body_carries_dump_flags_and_is_frozen():
     assert b.mode == "typed_model"
     assert (b.by_alias, b.omit_none) == (False, False)
     with pytest.raises(ValidationError):
-        b.by_alias = True  # frozen
+        b.by_alias = True  # ty: ignore[invalid-assignment]  # frozen
