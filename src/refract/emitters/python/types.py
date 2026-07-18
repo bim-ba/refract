@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import assert_never
 
 from refract.emitters.api import Import, RenderedType, TypeMapper
-from refract.ir.types import ListType, MapType, NeutralType, RefType, ScalarType
+from refract.ir.types import ListType, MapType, NeutralType, RefType, ScalarType, UnionType
 
 _SCALAR = {"string": "str", "integer": "int", "number": "float", "boolean": "bool"}
 
@@ -36,5 +36,7 @@ class PythonTypeMapper(TypeMapper):
                 return RenderedType(
                     text=f"dict[{kr.text}, {vr.text}]", imports=kr.imports + vr.imports
                 )
+            case UnionType():  # TEMPORARY (Task 2): Task 3 adds the real undiscriminated arm
+                raise NotImplementedError
             case _:
                 assert_never(neutral_type)

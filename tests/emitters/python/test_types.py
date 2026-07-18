@@ -1,6 +1,8 @@
+import pytest
+
 from refract.emitters.api import Import
 from refract.emitters.python.types import PythonTypeMapper
-from refract.ir.types import ListType, MapType, RefType, ScalarType
+from refract.ir.types import ListType, MapType, RefType, ScalarType, UnionType
 
 m = PythonTypeMapper()
 
@@ -37,3 +39,10 @@ def test_containers():
         ).text
         == "dict[str, int]"
     )
+
+
+def test_union_is_temporarily_not_implemented():
+    """TEMPORARY (Task 2 placeholder): Task 3 replaces this arm with real lowering + this test."""
+    union = UnionType(variants=(ScalarType(scalar="string"), ScalarType(scalar="integer")))
+    with pytest.raises(NotImplementedError):
+        m.render(union, optional=False)

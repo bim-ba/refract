@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-__all__ = ["ListType", "MapType", "NeutralType", "RefType", "ScalarType"]
+__all__ = ["ListType", "MapType", "NeutralType", "RefType", "ScalarType", "UnionType"]
 
 Scalar = Literal["string", "integer", "number", "boolean", "any"]
 
@@ -41,10 +41,23 @@ class MapType(_Node):
     value: NeutralType
 
 
+class UnionType(_Node):
+    kind: Literal["union"] = "union"
+    variants: tuple[NeutralType, ...]
+    discriminator: str | None = None
+
+    @model_validator(mode="after")
+    def _at_least_two_variants(self) -> UnionType:
+        if len(self.variants) < 2:
+            raise ValueError("a union needs >= 2 variants")
+        return self
+
+
 NeutralType = Annotated[
-    ScalarType | RefType | ListType | MapType,
+    ScalarType | RefType | ListType | MapType | UnionType,
     Field(discriminator="kind"),
 ]
 
 ListType.model_rebuild()
 MapType.model_rebuild()
+UnionType.model_rebuild()

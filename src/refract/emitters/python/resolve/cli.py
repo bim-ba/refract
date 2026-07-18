@@ -6,6 +6,7 @@ from refract.emitters.api import Import
 from refract.emitters.python.resolve._common import param_decl, py_str, render_imports
 from refract.emitters.python.views import CliPageView
 from refract.ir import ListType, MapType, ObjectModel, RefType, ScalarType
+from refract.ir.types import UnionType
 from refract.spec import SpecError
 
 if TYPE_CHECKING:
@@ -275,13 +276,15 @@ def _assembled_options(
                             option_names.append(option_name)
                             imports += decl_imports
                             inner.append(f"{child.name}={option_name}")
-                        case RefType() | ListType() | MapType():  # two-level nest -> escape hatch
+                        case (
+                            RefType() | ListType() | MapType() | UnionType()
+                        ):  # two-level nest -> escape hatch
                             raise SpecError(_handler_hint(op, field))
                         case _:  # closed union (ir/types.py) - unreachable, not a real arm
                             assert_never(child.type)
                 imports.append(Import(".models", target))
                 reassembly.append(f"{field.name}={target}({', '.join(inner)})")
-            case ListType() | MapType():  # not flattenable to scalar leaves
+            case ListType() | MapType() | UnionType():  # not flattenable to scalar leaves
                 raise SpecError(_handler_hint(op, field))
             case _:  # closed union (ir/types.py) - unreachable, not a real arm
                 assert_never(field.type)
