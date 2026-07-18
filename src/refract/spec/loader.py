@@ -69,6 +69,16 @@ def _field(spec: nodes.FieldSpec) -> ir.Field:
 
 
 def _param(spec: nodes.ParamSpec) -> ir.Param:
+    # A path param fills a `{...}` slot in the URL and is therefore always required. Permitting
+    # `optional`/`default` on it is a representable illegal state: every non-CLI surface appends
+    # `body: <model>` (no default) after the path decls, so a defaulted path param before the body
+    # renders a required-after-default SyntaxError. Reject at the boundary (make it unrepresentable)
+    # rather than let it reach the emitter.
+    if spec.loc == "path" and (spec.optional or spec.default is not None):
+        raise SpecError(
+            f"param {spec.name!r}: a path param is always required - it cannot be optional or "
+            "carry a default"
+        )
     return ir.Param(
         name=spec.name,
         loc=spec.loc,

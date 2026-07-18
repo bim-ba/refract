@@ -6,7 +6,7 @@ from refract import ir
 from refract.ir.model import ObjectModel, RootListModel
 from refract.ir.types import RefType, ScalarType
 from refract.spec import nodes
-from refract.spec.loader import SpecError, SpecLoader, _response_model
+from refract.spec.loader import SpecError, SpecLoader, _param, _response_model
 
 _EX = Path(__file__).resolve().parent.parent.parent / "examples" / "ycli-tracker"
 
@@ -173,6 +173,28 @@ def test_response_model_none_for_bodyless_2xx():
 def test_response_model_no_2xx_raises_spec_error():
     with pytest.raises(SpecError, match="no 2xx response"):
         _response_model("op", {404: _resp("Error")})
+
+
+def test_optional_path_param_raises_spec_error():
+    """I2: a path param is always required (it fills a `{...}` URL slot). Allowing `optional: true`
+    on it is a representable illegal state: the non-CLI surfaces append `body: <model>` (no default)
+    after the path decls, so a defaulted path param before the body renders a required-after-default
+    `SyntaxError`. Reject it at the boundary instead."""
+    with pytest.raises(SpecError, match=r"path param.*optional|optional.*path"):
+        _param(nodes.ParamSpec(name="thing_id", loc="path", optional=True))
+
+
+def test_defaulted_path_param_raises_spec_error():
+    with pytest.raises(SpecError, match=r"path param.*default|default.*path"):
+        _param(nodes.ParamSpec(name="thing_id", loc="path", default="x"))
+
+
+def test_required_path_and_optional_query_param_load():
+    """Positive control: a required path param and an optional query param are both fine."""
+    path = _param(nodes.ParamSpec(name="thing_id", loc="path"))
+    query = _param(nodes.ParamSpec(name="notify", loc="query", optional=True))
+    assert path.loc == "path" and path.optional is False
+    assert query.loc == "query" and query.optional is True
 
 
 def test_root_list_without_item_raises_spec_error(tmp_path: Path):
