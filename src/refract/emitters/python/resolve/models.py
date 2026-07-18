@@ -35,11 +35,6 @@ def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Im
         if field.default is not None
         else type_mapper.null_default(field.type, optional=field.optional)
     )
-    # A format-coerced field always carries an explicit `None` default (regardless of
-    # `field.optional`): its Python type is only as trustworthy as the wire coercion behind it,
-    # so - absent an explicit `field.default` - it renders defensively rather than as required.
-    if rendered.coercer is not None and default is None:
-        default = "None"
     text = rendered.text
     # `coercer` and `discriminator` never co-occur on one field (`format` is scalar-only; a union
     # is not a scalar) - these two wrap branches are INDEPENDENT and compose, neither nested

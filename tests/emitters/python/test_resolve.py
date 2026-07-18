@@ -100,11 +100,14 @@ def test_model_field_with_alias_emits_field_alias():
 def test_int64_field_wraps_annotated_before_validator():
     """A formatted scalar field wraps `Annotated[<base>, BeforeValidator(<coercer>)]` - independent
     of the discriminator branch (format is scalar-only; a union is never a scalar, so the two
-    never co-occur on one field)."""
+    never co-occur on one field). A REQUIRED coerced field follows the same convention as any other
+    required field: NO `= None` (coercion does not change whether a field is required)."""
     line, imports = resolve._model_field(
         ir.Field(name="cores", type=ir.ScalarType(scalar="integer", format="int64")), TYPE_MAPPER
     )
-    assert line == "    cores: Annotated[int, BeforeValidator(coerce_int64)] = None"
+    assert (
+        line == "    cores: Annotated[int, BeforeValidator(coerce_int64)]"
+    )  # required -> no = None
     assert {("pydantic", "BeforeValidator"), ("typing", "Annotated")} <= {
         (i.module, i.name) for i in imports
     }
