@@ -26,6 +26,7 @@ class RenderedType:
     text: str
     imports: tuple[Import, ...] = ()
     discriminator: str | None = None  # sibling tag field name, if this is a discriminated union
+    coercer: str | None = None  # name of a hand-written `BeforeValidator` callable, if formatted
 
 
 @dataclass(frozen=True)

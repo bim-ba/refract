@@ -35,7 +35,24 @@ def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Im
         if field.default is not None
         else type_mapper.null_default(field.type, optional=field.optional)
     )
+    # A format-coerced field always carries an explicit `None` default (regardless of
+    # `field.optional`): its Python type is only as trustworthy as the wire coercion behind it,
+    # so - absent an explicit `field.default` - it renders defensively rather than as required.
+    if rendered.coercer is not None and default is None:
+        default = "None"
     text = rendered.text
+    # `coercer` and `discriminator` never co-occur on one field (`format` is scalar-only; a union
+    # is not a scalar) - these two wrap branches are INDEPENDENT and compose, neither nested
+    # inside the other.
+    if rendered.coercer is not None:
+        # `render`'s optional wrap appends this exact " | None" suffix OUTSIDE the base text; strip
+        # it before the Annotated wrap and re-append it after, so `| None` stays the outermost
+        # union member: `Annotated[int, BeforeValidator(coerce_int64)] | None`, not
+        # `Annotated[int | None, BeforeValidator(coerce_int64)]`.
+        optional_suffix = " | None" if text.endswith(" | None") else ""
+        base_text = text.removesuffix(" | None")
+        text = f"Annotated[{base_text}, BeforeValidator({rendered.coercer})]{optional_suffix}"
+        imports += [Import("typing", "Annotated"), Import("pydantic", "BeforeValidator")]
     if rendered.discriminator is not None:
         text = f"Annotated[{text}, __FIELD__]"
         imports += [Import("typing", "Annotated"), Import("pydantic", "Field")]
@@ -112,6 +129,15 @@ def resolve_models(
         imports.append(Import("pydantic", "Field"))
     if any(isinstance(model, RootListModel) for model in res.models):
         imports.append(Import("pydantic", "RootModel"))
+    for model in res.models:
+        if not isinstance(model, ObjectModel):
+            continue
+        for field in model.fields:
+            rendered = type_mapper.render(field.type, optional=field.optional)
+            if rendered.coercer is not None:
+                # The coercer helper (e.g. `coerce_int64`) is HAND-WRITTEN in the shared base
+                # module alongside `APIModel`/`require_found` - refract emits only the wiring.
+                imports.append(Import(_shared_models_module(ctx), rendered.coercer))
     classes: list[str] = []
     for model in res.models:
         text, class_imports = _model_class(model, type_mapper, docstrings)

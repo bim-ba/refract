@@ -97,6 +97,45 @@ def test_model_field_with_alias_emits_field_alias():
     assert "Field(" in decl
 
 
+def test_int64_field_wraps_annotated_before_validator():
+    """A formatted scalar field wraps `Annotated[<base>, BeforeValidator(<coercer>)]` - independent
+    of the discriminator branch (format is scalar-only; a union is never a scalar, so the two
+    never co-occur on one field)."""
+    line, imports = resolve._model_field(
+        ir.Field(name="cores", type=ir.ScalarType(scalar="integer", format="int64")), TYPE_MAPPER
+    )
+    assert line == "    cores: Annotated[int, BeforeValidator(coerce_int64)] = None"
+    assert {("pydantic", "BeforeValidator"), ("typing", "Annotated")} <= {
+        (i.module, i.name) for i in imports
+    }
+
+
+def test_int64_optional_field_puts_none_outside_the_coercer_annotated():
+    """`render`'s optional wrap applies `| None` OUTSIDE the coerced base (`Annotated[int,
+    BeforeValidator(...)] | None`), not inside it - `_model_field` wraps whatever `rendered.text`
+    already is, it never re-derives the optional suffix itself."""
+    line, _imports = resolve._model_field(
+        ir.Field(name="cores", type=ir.ScalarType(scalar="integer", format="int64"), optional=True),
+        TYPE_MAPPER,
+    )
+    assert line == "    cores: Annotated[int, BeforeValidator(coerce_int64)] | None = None"
+
+
+def test_resolve_models_imports_coercer_from_shared_base_module():
+    """A coerced field pulls its coercer helper (hand-written in the shared base module, mirroring
+    the existing hand-written `APIModel` convention) alongside the `Annotated`/`BeforeValidator`
+    wiring - refract emits only the wiring, never the coercion logic itself."""
+    model = ir.ObjectModel(
+        name="Widget",
+        fields=(ir.Field(name="cores", type=ir.ScalarType(scalar="integer", format="int64")),),
+    )
+    res = ir.Resource(
+        domain="tracker", resource="widgets", security="oauth_token", models=(model,), operations=()
+    )
+    page = resolve.resolve_models(res, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert "from ycli.yandex.models import APIModel, coerce_int64" in page.import_lines
+
+
 _UNION = UnionType(
     variants=(ir.RefType(target="Paragraph"), ir.RefType(target="Heading1Block")),
     discriminator="type",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from itertools import chain
 from typing import assert_never
 
@@ -18,6 +19,29 @@ from refract.ir.types import (
 _SCALAR = {"string": "str", "integer": "int", "number": "float", "boolean": "bool"}
 
 
+@dataclass(frozen=True)
+class _Coercion:
+    """A `format` -> Python lowering: the base type it renders as (may differ from the plain
+    scalar mapping, e.g. `rfc2822` -> `datetime`), the name of the hand-written `BeforeValidator`
+    callable (lives in the shared base module - refract emits only the wiring), and any type
+    imports the base itself needs."""
+
+    base: str
+    coercer: str
+    type_imports: tuple[Import, ...] = ()
+
+
+# Keyed by ScalarType.format. A format absent here (including None - no format) is a documented
+# NO-OP: the bare scalar renders unchanged, with `coercer=None` - not an error, since refract
+# does not need to coerce every format an upstream spec happens to name.
+_FORMAT_COERCERS: dict[str, _Coercion] = {
+    "int64": _Coercion(base="int", coercer="coerce_int64"),
+    "rfc2822": _Coercion(
+        base="datetime", coercer="coerce_rfc2822", type_imports=(Import("datetime", "datetime"),)
+    ),
+}
+
+
 class PythonTypeMapper(TypeMapper):
     """Lower a NeutralType to a Python type string (+ the imports it needs)."""
 
@@ -25,7 +49,10 @@ class PythonTypeMapper(TypeMapper):
         base = self._base(neutral_type)
         if optional:
             return RenderedType(
-                text=f"{base.text} | None", imports=base.imports, discriminator=base.discriminator
+                text=f"{base.text} | None",
+                imports=base.imports,
+                discriminator=base.discriminator,
+                coercer=base.coercer,
             )
         return base
 
@@ -36,8 +63,13 @@ class PythonTypeMapper(TypeMapper):
         match neutral_type:
             case ScalarType(scalar="any"):
                 return RenderedType(text="Any", imports=(Import("typing", "Any"),))
-            case ScalarType(scalar=scalar):
-                return RenderedType(text=_SCALAR[scalar])
+            case ScalarType(scalar=scalar, format=fmt):
+                coercion = _FORMAT_COERCERS.get(fmt) if fmt is not None else None
+                if coercion is None:
+                    return RenderedType(text=_SCALAR[scalar])
+                return RenderedType(
+                    text=coercion.base, imports=coercion.type_imports, coercer=coercion.coercer
+                )
             case RefType(target=target):
                 return RenderedType(text=target)
             case ListType(item=item):
