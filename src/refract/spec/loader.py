@@ -6,7 +6,7 @@ import yaml
 from pydantic import ValidationError
 
 from refract import ir
-from refract.ir.types import ListType, MapType, NeutralType, RefType, ScalarType
+from refract.ir.types import ListType, MapType, NeutralType, RefType, ScalarType, UnionType
 from refract.spec import nodes
 
 if TYPE_CHECKING:
@@ -58,14 +58,46 @@ def parse_neutral_type(text: str) -> NeutralType:
 
 
 def _field(spec: nodes.FieldSpec) -> ir.Field:
+    if spec.type is not None and spec.oneof is not None:
+        raise SpecError(f"field {spec.name!r}: set exactly one of 'type' and 'oneof', not both")
+    if spec.oneof is not None:
+        neutral_type: NeutralType = _oneof_type(spec.name, spec.oneof)
+    elif spec.type is not None:
+        neutral_type = parse_neutral_type(spec.type)
+    else:
+        raise SpecError(f"field {spec.name!r}: needs 'type' or 'oneof'")
     return ir.Field(
         name=spec.name,
-        type=parse_neutral_type(spec.type),
+        type=neutral_type,
         optional=spec.optional,
         default=spec.default,
         alias=spec.alias,
         description=spec.description,
     )
+
+
+def _oneof_type(field_name: str, spec: nodes.OneOfSpec) -> UnionType:
+    """Lower a structured `oneof:` node to a UnionType (Variant 2: one node, both union kinds).
+
+    Variant VALUES are neutral type-EXPRESSIONS, so an undiscriminated union may mix
+    scalars/lists/refs; a discriminated union (`discriminator` set) requires every variant to be a
+    `ref<Model>` (pydantic discriminated unions need BaseModel arms). Map KEYS are wire tag values
+    when discriminated, documentation-only labels when not.
+    """
+    variants = tuple(parse_neutral_type(expr) for expr in spec.variants.values())
+    if spec.discriminator is not None:
+        for label, expr, variant in zip(
+            spec.variants, spec.variants.values(), variants, strict=True
+        ):
+            if not isinstance(variant, RefType):
+                raise SpecError(
+                    f"field {field_name!r}: discriminated variant {label!r} must be a "
+                    f"ref<Model>, got {expr!r}"
+                )
+    try:
+        return UnionType(variants=variants, discriminator=spec.discriminator)
+    except ValueError as error:  # the >= 2 validator
+        raise SpecError(f"field {field_name!r}: {error}") from error
 
 
 def _param(spec: nodes.ParamSpec) -> ir.Param:

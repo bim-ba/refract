@@ -4,9 +4,9 @@ import pytest
 
 from refract import ir
 from refract.ir.model import ObjectModel, RootListModel
-from refract.ir.types import RefType, ScalarType
+from refract.ir.types import RefType, ScalarType, UnionType
 from refract.spec import nodes
-from refract.spec.loader import SpecError, SpecLoader, _param, _response_model
+from refract.spec.loader import SpecError, SpecLoader, _field, _param, _response_model
 
 _EX = Path(__file__).resolve().parent.parent.parent / "examples" / "ycli-tracker"
 
@@ -195,6 +195,67 @@ def test_required_path_and_optional_query_param_load():
     query = _param(nodes.ParamSpec(name="notify", loc="query", optional=True))
     assert path.loc == "path" and path.optional is False
     assert query.loc == "query" and query.optional is True
+
+
+def test_undiscriminated_oneof_lowers_to_union_of_mixed_type_exprs():
+    """Variant 2: an undiscriminated `oneof` (no discriminator) mixes a scalar + a ref."""
+    field = _field(
+        nodes.FieldSpec(
+            name="source",
+            oneof=nodes.OneOfSpec(variants={"id": "string", "full": "ref<Customer>"}),
+        )
+    )
+    assert field.type == UnionType(
+        variants=(ScalarType(scalar="string"), RefType(target="Customer")), discriminator=None
+    )
+
+
+def test_discriminated_oneof_lowers_to_ref_union_with_discriminator():
+    field = _field(
+        nodes.FieldSpec(
+            name="block",
+            oneof=nodes.OneOfSpec(
+                discriminator="type",
+                variants={"paragraph": "ref<Paragraph>", "heading_1": "ref<Heading1Block>"},
+            ),
+        )
+    )
+    assert field.type == UnionType(
+        variants=(RefType(target="Paragraph"), RefType(target="Heading1Block")),
+        discriminator="type",
+    )
+
+
+def test_discriminated_oneof_with_non_ref_variant_raises():
+    """A discriminated variant that is a scalar (not `ref<Model>`) is rejected fail-loud."""
+    spec = nodes.FieldSpec(
+        name="block",
+        oneof=nodes.OneOfSpec(discriminator="type", variants={"a": "string", "b": "ref<B>"}),
+    )
+    with pytest.raises(SpecError, match="must be a ref"):
+        _field(spec)
+
+
+def test_single_variant_oneof_is_rejected():
+    """The UnionType `>= 2` validator fires, re-wrapped as SpecError (covers the except arm)."""
+    spec = nodes.FieldSpec(name="x", oneof=nodes.OneOfSpec(variants={"only": "string"}))
+    with pytest.raises(SpecError, match="2 variants"):
+        _field(spec)
+
+
+def test_field_with_both_type_and_oneof_raises():
+    spec = nodes.FieldSpec(
+        name="block",
+        type="string",
+        oneof=nodes.OneOfSpec(discriminator="type", variants={"a": "ref<A>", "b": "ref<B>"}),
+    )
+    with pytest.raises(SpecError, match="exactly one of 'type' and 'oneof'"):
+        _field(spec)
+
+
+def test_field_with_neither_type_nor_oneof_raises():
+    with pytest.raises(SpecError, match="needs 'type' or 'oneof'"):
+        _field(nodes.FieldSpec(name="block"))
 
 
 def test_root_list_without_item_raises_spec_error(tmp_path: Path):
