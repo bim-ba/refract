@@ -21,6 +21,7 @@ from refract.ir import (
     RefType,
     RootListModel,
     Safety,
+    ScalarType,
     TestKind,
 )
 from refract.spec import SpecError
@@ -393,6 +394,90 @@ def resolve_cli(
         ),
         blocks=tuple(blocks),
     )
+
+
+def _option_decl(
+    name: str, field: ir.Field, type_mapper: TypeMapper
+) -> tuple[str, tuple[Import, ...]]:
+    """One typer option decl ``name: Type`` (+ `` = default``) for a body ``Field``.
+
+    Mirrors ``param_decl`` (a typer option IS a parameter), but takes an explicit ``name`` so a
+    nested field can flatten to ``<parent>_<child>``. Default is the field's explicit spec default
+    or, absent that, ``type_mapper.null_default`` (implied-null).
+    """
+    rendered = type_mapper.render(field.type, optional=field.optional)
+    default = (
+        field.default
+        if field.default is not None
+        else type_mapper.null_default(field.type, optional=field.optional)
+    )
+    decl = f"{name}: {rendered.text}"
+    if default is not None:
+        decl = f"{decl} = {default}"
+    return decl, rendered.imports
+
+
+def _handler_hint(op: ir.Operation, field: ir.Field) -> str:
+    """The Q1 escape-hatch message - single source so both reject arms match byte-for-byte."""
+    return (
+        f"{op.name}: body field {field.name!r} needs handler: "
+        "(Assembled-CLI covers scalar + one-level ref)"
+    )
+
+
+def _assembled_options(
+    res: ir.Resource, op: ir.Operation, type_mapper: TypeMapper, naming: Naming
+) -> tuple[list[str], str, list[Import]]:
+    """Flatten a write op's body model into flat typer options + a body-reassembly expression.
+
+    Walk ``res.model(op.body.model)`` (an ObjectModel) one level: a scalar field -> one option
+    ``name: Type`` reassembled ``name=name``; a one-level ``ref<Target>`` field fans Target's
+    scalar fields into ``<parent>_<child>`` options reassembled
+    ``parent=Target(child=<parent>_<child>, ...)``. Any shape past scalar + one-level-ref (map,
+    list, a ref nested two levels down) is the Q1 escape hatch - a ``SpecError`` naming the field
+    and suggesting a ``handler:``.
+
+    Returns ``(option_decls, reassembly_expr, imports)``. For a PriorityCreate {key, name:
+    ref<LocalizedName>{ru?, en?}, order?, description?} body the expr is exactly
+    ``PriorityCreate(key=key, name=LocalizedName(ru=name_ru, en=name_en), order=order,
+    description=description)``.
+    """
+    body = op.body
+    if body is None:  # write-op only; a bodyless op reaching here is a wiring bug - fail loud
+        raise ValueError(f"{op.name}: assembled options require a write body")
+    model = res.model(body.model)
+    assert isinstance(model, ObjectModel)  # a write body always names an object model
+    # Shape-aligned with `_body_test_imports`: both walk the body model's one-level `ref<...>`
+    # fields (third consumer -> extract a shared walker). Imports open with the body model (the
+    # reassembly ctor); `.models` mirrors requests/client - the CLI wiring (D5b) supplies the
+    # final module.
+    option_decls: list[str] = []
+    reassembly: list[str] = []
+    imports: list[Import] = [Import(".models", body.model)]
+    for field in model.fields:
+        match field.type:
+            case ScalarType():
+                decl, decl_imports = _option_decl(field.name, field, type_mapper)
+                option_decls.append(decl)
+                imports += decl_imports
+                reassembly.append(f"{field.name}={field.name}")
+            case RefType(target=target):
+                nested = res.model(target)
+                assert isinstance(nested, ObjectModel)  # a one-level ref targets an object model
+                inner: list[str] = []
+                for child in nested.fields:
+                    if not isinstance(child.type, ScalarType):  # two-level nest -> escape hatch
+                        raise SpecError(_handler_hint(op, field))
+                    option_name = naming.cli_option(field.name, child.name)
+                    decl, decl_imports = _option_decl(option_name, child, type_mapper)
+                    option_decls.append(decl)
+                    imports += decl_imports
+                    inner.append(f"{child.name}={option_name}")
+                imports.append(Import(".models", target))
+                reassembly.append(f"{field.name}={target}({', '.join(inner)})")
+            case _:  # map<...>, list<...> - not flattenable to scalar leaves
+                raise SpecError(_handler_hint(op, field))
+    return option_decls, f"{body.model}({', '.join(reassembly)})", imports
 
 
 def _tags_symbol(safety: Safety) -> str:

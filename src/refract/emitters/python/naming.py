@@ -20,3 +20,6 @@ class PythonNaming(Naming):
 
     def class_name(self, base: str, suffix: str) -> str:
         return f"{self.pascal(base)}{suffix}"
+
+    def cli_option(self, *parts: str) -> str:
+        return "_".join(parts)

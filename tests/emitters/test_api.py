@@ -95,6 +95,9 @@ def test_language_backend_composes_strategies():
         def class_name(self, base, suffix):
             return base + suffix
 
+        def cli_option(self, *parts):
+            return "_".join(parts)
+
     n = _N()
     assert n.class_name("Me", "Client") == "MeClient"
 

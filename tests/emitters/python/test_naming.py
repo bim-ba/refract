@@ -18,3 +18,8 @@ def test_class_name_merges_the_three_helpers():
     assert n.class_name("me", "Client") == "MeClient"  # was resource_client_class
     assert n.class_name("tracker", "Resource") == "TrackerResource"  # was domain_resource_base
     assert n.class_name("tracker", "Client") == "TrackerClient"  # was domain_client_class
+
+
+def test_cli_option_snake_joins_parts():
+    assert n.cli_option("key") == "key"  # single part -> verbatim
+    assert n.cli_option("name", "ru") == "name_ru"  # typer auto-derives the --name-ru flag

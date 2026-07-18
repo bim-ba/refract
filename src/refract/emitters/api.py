@@ -49,6 +49,9 @@ class Naming(ABC):
     @abstractmethod
     # merges the 3 *_class helpers
     def class_name(self, base: str, suffix: str) -> str: ...
+    @abstractmethod
+    # snake-join a flat typer option name: cli_option("name", "ru") -> "name_ru"
+    def cli_option(self, *parts: str) -> str: ...
 
 
 class TypeMapper(ABC):
