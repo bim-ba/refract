@@ -7,6 +7,8 @@ test case, and asserts both render with distinct, per-op `_URL_<op.name>` consta
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from refract import ir
@@ -135,3 +137,52 @@ def test_resolve_tests_client_write_op_imports_body_and_nested_ref_models(
     # model) shares the same module, so it merges into the same grouped import line.
     model_import = "from ycli.widget.widgets.widgets.models import Widget, WidgetCreate, WidgetName"
     assert model_import in page.import_lines
+
+
+def _cli_only_op() -> ir.Operation:
+    """An op whose ONLY test case is CLI-kind (no CLIENT case). `_stub` references
+    `_PAYLOAD_<op>` for every non-guard case, so the payload constant must still be emitted -
+    otherwise the generated CLI test raises `NameError` on an undefined `_PAYLOAD_get`.
+    """
+    case = ir.TestCase(
+        name="get_cli",
+        kind=ir.TestKind.CLI,
+        http_method="GET",
+        path="widgets",
+        status=200,
+        response_json={"id": 1},
+        has_json=True,
+        asserts=["res.exit_code == 0"],
+        call="",
+    )
+    return ir.Operation(
+        name="get",
+        method="GET",
+        path="widgets",
+        operation_id="widgets_get",
+        response_model="Widget",
+        cli=ir.CliMeta(name="get", documentation="Get a widget."),
+        tests=(case,),
+    )
+
+
+@pytest.fixture
+def cli_only_resource() -> ir.Resource:
+    return ir.Resource(
+        domain="widget",
+        resource="widgets",
+        security="token",
+        models=(),
+        operations=(_cli_only_op(),),
+    )
+
+
+def test_resolve_tests_cli_only_op_defines_referenced_payload(cli_only_resource, ctx, parts):
+    """C1 regression: every `_PAYLOAD_<op>` a test body references must be defined as a module
+    constant. A cli-only (no CLIENT-case) op still stubs via `_PAYLOAD_get`, so the constant
+    must be emitted; the pre-fix emitter gated it on `TestKind.CLIENT` and left it undefined.
+    """
+    page = resolve_tests(cli_only_resource, ctx, *parts)
+    defined = set(re.findall(r"^(_PAYLOAD_\w+) =", "\n".join(page.constants), re.MULTILINE))
+    referenced = set(re.findall(r"_PAYLOAD_\w+", "\n".join(page.tests)))
+    assert referenced <= defined, f"undefined payload constants: {referenced - defined}"

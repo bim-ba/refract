@@ -222,9 +222,10 @@ def test_body_test_imports_skips_nested_ref_scan_for_non_object_model():
 
 def test_resolve_tests_cli_only_op_drops_client_surface():
     """An op whose only test case is CLI-kind (no CLIENT case): the module doc drops the
-    "client" surface label, the import block skips the client-class + response-model imports,
-    and no ``_PAYLOAD_`` constant is emitted (there is no client-kind case to read a payload
-    from)."""
+    "client" surface label and the import block skips the client-class + response-model imports.
+    The ``_PAYLOAD_`` constant IS still emitted: ``_stub`` references ``_PAYLOAD_<op>`` for every
+    non-guard case (client/cli/mcp alike), so a cli-only op that omitted it would reference an
+    undefined name (C1). The payload is read from the sole non-guard case's fixture."""
     case = ir.TestCase(
         name="widgets_list_cli",
         kind=ir.TestKind.CLI,
@@ -264,8 +265,47 @@ def test_resolve_tests_cli_only_op_drops_client_surface():
     )
     assert page.constants == (
         '_URL_list = "https://api.example/widgets"',
+        "_PAYLOAD_list = []",
         "_runner = CliRunner()",
     )
+
+
+def test_resolve_tests_guard_only_op_emits_no_payload():
+    """An op whose only test case is an MCP guard: the guard stub inlines its own ``{}`` fixture
+    (never reads ``_PAYLOAD_``), so no payload constant is emitted. Closes the fallback branch of
+    the payload-case selection (no client case AND no other non-guard case)."""
+    case = ir.TestCase(
+        name="widgets_delete_guard",
+        kind=ir.TestKind.MCP_GUARD,
+        http_method="DELETE",
+        path="widgets/x",
+        status=404,
+        response_json={"error": "not_found"},
+        has_json=True,
+        asserts=(),
+        call="",
+    )
+    op = ir.Operation(
+        name="delete",
+        method="DELETE",
+        path="widgets/{id}",
+        operation_id="widgets_delete",
+        mcp=ir.McpMeta(
+            name="delete", safety=ir.Safety.DESTRUCTIVE, title="Delete", documentation="Delete."
+        ),
+        tests=(case,),
+    )
+    res = ir.Resource(
+        domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
+    )
+    ctx = EmitContext(
+        package_root="ycli.yandex.tracker",
+        config=ir.ClientConfig(
+            name="tracker", server=ir.Server(base_url="https://api.example"), auth=()
+        ),
+    )
+    page = resolve.resolve_tests(res, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert not any(constant.startswith("_PAYLOAD_") for constant in page.constants)
 
 
 def test_resolve_tests_raises_without_client_config(me_resource):

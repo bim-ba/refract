@@ -843,9 +843,17 @@ def _tests_constants(
     if ctx.config is None:
         raise ValueError("tests surface requires ClientConfig (base_url)")
     lines = [f'_URL_{op.name} = "{ctx.config.server.base_url}/{op.path}"']
-    if TestKind.CLIENT in kinds:
-        client_case = next(case for case in op.tests if case.kind is TestKind.CLIENT)
-        lines.append(f"_PAYLOAD_{op.name} = {client_case.response_json!r}")
+    # `_stub` references `_PAYLOAD_<op>` for EVERY non-guard case (client/cli/mcp) - only the
+    # MCP_GUARD case inlines its own `{}`. So the payload constant must exist whenever any
+    # non-guard case does, not merely when a CLIENT case does: a cli-only or mcp-only tested op
+    # would otherwise reference an undefined name. Prefer the CLIENT case's fixture when present
+    # (keeps the shared per-op payload deterministic and byte-identical on the current corpus),
+    # else fall back to the first non-guard case.
+    non_guard = [case for case in op.tests if case.kind is not TestKind.MCP_GUARD]
+    client = [case for case in non_guard if case.kind is TestKind.CLIENT]
+    payload_case = client[0] if client else non_guard[0] if non_guard else None
+    if payload_case is not None:
+        lines.append(f"_PAYLOAD_{op.name} = {payload_case.response_json!r}")
     if TestKind.CLI in kinds:
         lines.append("_runner = CliRunner()")
     return tuple(lines)
