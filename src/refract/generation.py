@@ -36,7 +36,9 @@ def find_shared_models(specs_dir: Path) -> Path | None:
     """Locate the per-API `_models.yaml` sibling of / above the resource specs. Optional: `None`
     means no models are shared across the API's resources."""
     matches = sorted(Path(specs_dir).glob("**/_models.yaml"))
-    return matches[0] if matches else None
+    if not matches:
+        return None
+    return matches[0]
 
 
 def _attach_shared(res: ir.Resource, shared: tuple[ir.Model, ...]) -> ir.Resource:
@@ -86,7 +88,10 @@ class Generator:
     ) -> dict[Path, str]:
         config = SpecLoader.load_client_config(client_config or find_client_config(specs_dir))
         shared_models_path = find_shared_models(specs_dir)
-        shared = SpecLoader.load_shared_models(shared_models_path) if shared_models_path else ()
+        if shared_models_path is None:
+            shared: tuple[ir.Model, ...] = ()
+        else:
+            shared = SpecLoader.load_shared_models(shared_models_path)
         by_domain: dict[str, list[ir.Resource]] = defaultdict(list)
         the_plan: dict[Path, str] = {}
         for spec_path in sorted(Path(specs_dir).glob("**/resource.yaml")):

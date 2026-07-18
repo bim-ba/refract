@@ -90,3 +90,76 @@ def test_attach_shared_rejects_name_collision():
     )
     with pytest.raises(SpecError, match=r"defined both locally and in _models\.yaml"):
         _attach_shared(res, (ObjectModel(name="ObjectMeta"),))
+
+
+def test_plan_threads_shared_models_end_to_end(tmp_path):
+    """`_models.yaml` PRESENT, driven through the REAL entry point (`Generator.plan`), not
+    `SpecLoader.load_shared_models` called directly.
+
+    `ObjectMeta` is declared ONLY in `_models.yaml` - never in `widgets/resource.yaml`'s own
+    `models:`. The `create` op's write body (`WidgetCreate`) carries a `ref<ObjectMeta>` field, so
+    the CLI assembler's one-level ref walk (`resolve/cli.py::_assembled_options`) must call
+    `res.model("ObjectMeta")`, which only resolves via `res.shared_models` - i.e. only if
+    `find_shared_models` located the file AND `Generator.plan` threaded it through
+    `SpecLoader.load_shared_models` + `_attach_shared`. If either step is skipped, `res.model(...)`
+    raises `KeyError` and `plan()` blows up before this test can even assert.
+    """
+    (tmp_path / "client.yaml").write_text(
+        "name: demo\n"
+        "server:\n"
+        "  base_url: https://api.example.com\n"
+        "default_headers: {}\n"
+        "auth:\n"
+        "  tok:\n"
+        "    kind: header\n"
+        "    header: Authorization\n"
+        '    template: "Bearer {token}"\n'
+        "    inputs:\n"
+        "      token: {env: DEMO_TOKEN}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "_models.yaml").write_text(
+        "models:\n"
+        "  - name: ObjectMeta\n"
+        "    fields:\n"
+        "      - {name: name, type: string, optional: true}\n",
+        encoding="utf-8",
+    )
+    resource_dir = tmp_path / "demo" / "widgets"
+    resource_dir.mkdir(parents=True)
+    (resource_dir / "resource.yaml").write_text(
+        "domain: demo\n"
+        "resource: widgets\n"
+        "security: tok\n"
+        "models:\n"
+        "  - name: Widget\n"
+        "    fields:\n"
+        "      - {name: key, type: string, optional: true}\n"
+        "  - name: WidgetCreate\n"
+        "    fields:\n"
+        '      - {name: key, type: string, description: "Key of the new widget."}\n'
+        '      - {name: metadata, type: "ref<ObjectMeta>", description: "Shared metadata."}\n'
+        "operations:\n"
+        "  - name: create\n"
+        "    method: POST\n"
+        "    path: widgets/\n"
+        "    operationId: widgets_create\n"
+        "    body: {strategy: TypedModel, model: WidgetCreate, "
+        'dump: "by_alias=True, exclude_none=True"}\n'
+        "    responses:\n"
+        "      200: {model: Widget}\n"
+        "    mcp:\n"
+        "      name: widgets_create\n"
+        "      safety: WRITE\n"
+        '      title: "Create widget"\n'
+        '      documentation: "Create a widget."\n'
+        "    cli:\n"
+        "      name: create\n"
+        '      documentation: "Create a widget from a key and metadata name."\n',
+        encoding="utf-8",
+    )
+
+    the_plan = Generator.for_language("python").plan(tmp_path, tmp_path / "out")
+
+    cli_source = the_plan[tmp_path / "out" / "demo" / "widgets" / "cli.py"]
+    assert "metadata=ObjectMeta(name=metadata_name)" in cli_source
