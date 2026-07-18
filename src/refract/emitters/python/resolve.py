@@ -356,17 +356,35 @@ def _remap_to_resource_models(
     return [Import(models_module, imp.name) if imp.module == ".models" else imp for imp in imports]
 
 
+def _partition_by_default(decls: list[str]) -> tuple[list[str], list[str]]:
+    """Split param decls into ``(no_default, with_default)``, preserving relative order in each.
+
+    A decl carries a default iff it contains ``" = "``: ``param_decl``/``_option_decl`` render a
+    default as literally `` = <expr>`` appended to the type text, and a bare type annotation
+    (``str``, ``str | None``, ``list[str]``, ...) never contains ``" = "`` on its own - so the
+    substring test is a safe, cheap proxy for "was this decl built with a default value".
+    """
+    no_default = [decl for decl in decls if " = " not in decl]
+    with_default = [decl for decl in decls if " = " in decl]
+    return no_default, with_default
+
+
 def _cli_write_parts(
     res: ir.Resource, op: ir.Operation, ctx: EmitContext, naming: Naming, type_mapper: TypeMapper
 ) -> tuple[str, str, list[Import]]:
     """``(signature_tail, call_args, imports)`` for one write command.
 
-    ``signature_tail`` is the ``, <options>, <path>, <query>`` suffix rendered after ``ctx`` (flat
-    options from ``_assembled_options``, then path/query decls via ``param_decl``). ``call_args``
-    forwards path names (positional), the reassembled body expr, then ``name=name`` query kwargs -
-    matching the client method's ``(path, body, *, query)`` order. Imports are the body/ref model
-    imports (remapped from relative ``.models`` to the resource's absolute module) plus path/query
-    scalar-type imports.
+    ``signature_tail`` is the suffix rendered after ``ctx``: every decl WITHOUT a default (options,
+    path, query - in that source order), then every decl WITH a default, each group preserving its
+    relative order (``_partition_by_default``). Plain source-order concatenation can put a
+    required param (e.g. a path param) after a defaulted one (e.g. an optional body option),
+    which Python rejects with a ``SyntaxError``; partitioning both fixes that and gives sensible
+    typer semantics (required -> positional Arguments first, optional -> Options after).
+    ``call_args`` forwards path names (positional), the reassembled body expr, then ``name=name``
+    query kwargs - matching the client method's ``(path, body, *, query)`` order, independent of
+    how the command signature above is ordered. Imports are the body/ref model imports (remapped
+    from relative ``.models`` to the resource's absolute module) plus path/query scalar-type
+    imports.
     """
     option_decls, reassembly_expr, model_imports = _assembled_options(res, op, type_mapper, naming)
     path_decls: list[str] = []
@@ -383,7 +401,8 @@ def _cli_write_parts(
         else:  # query
             query_decls.append(decl)
             query_kwargs.append(f"{param.name}={param.name}")
-    signature_tail = "".join(f", {decl}" for decl in (*option_decls, *path_decls, *query_decls))
+    no_default, with_default = _partition_by_default([*option_decls, *path_decls, *query_decls])
+    signature_tail = "".join(f", {decl}" for decl in (*no_default, *with_default))
     call_args = ", ".join((*path_names, reassembly_expr, *query_kwargs))
     imports = _remap_to_resource_models(ctx, res, [*model_imports, *param_imports])
     return signature_tail, call_args, imports

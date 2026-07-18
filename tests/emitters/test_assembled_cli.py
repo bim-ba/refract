@@ -8,6 +8,8 @@ walk is exercised without loading a spec file.
 
 from __future__ import annotations
 
+import ast
+
 import pytest
 
 from refract import ir
@@ -287,3 +289,78 @@ def test_cli_command_read_op_unchanged():
         "    app_ctx = AppContext.from_typer_context(ctx)\n"
         "    Serializer.serialize(app_ctx.tracker.me.get(), app_ctx.strategy, app_ctx.console)"
     )
+
+
+# --- Review fix: required-after-defaulted parameter ordering (SyntaxError guard) ---
+
+
+def test_cli_command_edit_shape_orders_required_path_before_defaulted_options():
+    """The real priorities `edit` shape: a REQUIRED path param (`priority_id`) alongside an
+    OPTIONAL query and a body whose fields are all optional (so its options carry `= None`).
+
+    Naive source-order concatenation (options, then path, then query) would emit the required
+    `priority_id: str` AFTER the defaulted `name_ru: str | None = None` option - a Python
+    `SyntaxError` (parameter without a default follows parameter with a default). The generated
+    def must instead partition: every no-default decl first, then every defaulted decl.
+    """
+    priority_edit = ir.ObjectModel(
+        name="PriorityEdit", fields=(ir.Field(name="name_ru", type=_STRING, optional=True),)
+    )
+    edit = ir.Operation(
+        name="edit",
+        method="POST",
+        path="priorities/{priority_id}",
+        operation_id="priorities_edit",
+        params=(
+            ir.Param(name="priority_id", loc="path", type=_STRING),
+            ir.Param(
+                name="version", loc="query", type=ir.ScalarType(scalar="integer"), optional=True
+            ),
+        ),
+        body=ir.Body(model="PriorityEdit"),
+        cli=ir.CliMeta(name="edit", documentation="Edit a priority."),
+    )
+    res = ir.Resource(
+        domain="tracker",
+        resource="priorities",
+        security="oauth_token",
+        models=(priority_edit,),
+        operations=(edit,),
+    )
+    block, _imports = resolve._cli_command(res, edit, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    ast.parse(block)  # no SyntaxError - the crux of the regression
+    def_line = next(line for line in block.splitlines() if line.startswith("def edit("))
+    assert def_line.index("priority_id: str") < def_line.index("= None")
+
+
+def test_assembled_options_orders_required_scalar_before_defaulted_scalar():
+    """A body `{note?: str, key: str}` - an optional field declared BEFORE a required one -
+    must still emit the required `key: str` before the defaulted `note: str | None = None` in
+    the command signature (the partition reorders across the body options too, not just
+    across options/path/query)."""
+    model = ir.ObjectModel(
+        name="NotePatch",
+        fields=(
+            ir.Field(name="note", type=_STRING, optional=True),
+            ir.Field(name="key", type=_STRING),
+        ),
+    )
+    op = ir.Operation(
+        name="write",
+        method="POST",
+        path="things",
+        operation_id="things_write",
+        body=ir.Body(model="NotePatch"),
+        cli=ir.CliMeta(name="write", documentation="Write a thing."),
+    )
+    res = ir.Resource(
+        domain="tracker",
+        resource="things",
+        security="oauth_token",
+        models=(model,),
+        operations=(op,),
+    )
+    block, _imports = resolve._cli_command(res, op, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    ast.parse(block)  # no SyntaxError
+    def_line = next(line for line in block.splitlines() if line.startswith("def write("))
+    assert def_line.index("key: str") < def_line.index("note: str | None = None")
