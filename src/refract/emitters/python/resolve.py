@@ -14,7 +14,15 @@ from refract.emitters.python.views import (
     RootClientPageView,
     TestsPageView,
 )
-from refract.ir import HeaderAuth, MultiHeaderAuth, ObjectModel, RootListModel, Safety, TestKind
+from refract.ir import (
+    HeaderAuth,
+    MultiHeaderAuth,
+    ObjectModel,
+    RefType,
+    RootListModel,
+    Safety,
+    TestKind,
+)
 from refract.spec import SpecError
 
 # NB: `MultiHeaderAuth`/`HeaderAuth` here are the ir.auth DESCRIPTORS (AuthScheme variants) used
@@ -522,6 +530,24 @@ def _tests_module_doc(res: ir.Resource, ops: tuple[ir.Operation, ...], kinds: se
     return f"{res.domain_title} /{paths} resource - {surfaces}, HTTP stubbed."
 
 
+def _body_test_imports(res: ir.Resource, body: ir.Body, models_module: str) -> tuple[Import, ...]:
+    """The body model's import, plus any of its directly-nested ``ref<...>`` fields.
+
+    A CLIENT-kind test's authored ``call`` constructs the body model literally in Python (e.g.
+    ``PriorityCreate(name=LocalizedName(...))``), so a nested ref field needs its own import too -
+    one level deep only (no write body in this codebase nests a ref two levels down yet).
+    """
+    model = res.model(body.model)
+    imports = [Import(models_module, body.model)]
+    if isinstance(model, ObjectModel):
+        imports += [
+            Import(models_module, field.type.target)
+            for field in model.fields
+            if isinstance(field.type, RefType)
+        ]
+    return tuple(imports)
+
+
 def _tests_imports(
     res: ir.Resource,
     ops: tuple[ir.Operation, ...],
@@ -562,12 +588,15 @@ def _tests_imports(
         first_party.append(
             f"from {ctx.package_root}.{res.resource} import mcp as {res.resource}_mcp_module"
         )
-    model_imports = tuple(
-        Import(f"{ctx.package_root}.{res.resource}.models", op.response_model)
-        for op in ops
-        if op.response_model and any(case.kind is TestKind.CLIENT for case in op.tests)
-    )
-    first_party.extend(render_imports(model_imports))
+    models_module = f"{ctx.package_root}.{res.resource}.models"
+    model_imports: list[Import] = []
+    for op in ops:
+        has_client_case = any(case.kind is TestKind.CLIENT for case in op.tests)
+        if has_client_case and op.response_model:
+            model_imports.append(Import(models_module, op.response_model))
+        if has_client_case and op.body is not None:
+            model_imports.extend(_body_test_imports(res, op.body, models_module))
+    first_party.extend(render_imports(tuple(model_imports)))
     return (*stdlib, *third_party, *first_party)
 
 

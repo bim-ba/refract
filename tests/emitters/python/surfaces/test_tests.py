@@ -1,6 +1,19 @@
 from refract import ir
 from refract.emitters.api import EmitContext
 
+# A resource whose sole operation carries no `tests:` facet - proves the `applies() is False`
+# branch without depending on the `priorities` example fixture, which now DOES carry tests
+# (D1 multi-op fixtures on `list` + `create`; see test_render_resource_gates_surfaces).
+_NO_TESTS_RESOURCE = ir.Resource(
+    domain="tracker",
+    resource="widgets",
+    security="oauth_token",
+    models=(),
+    operations=(
+        ir.Operation(name="get", method="GET", path="widgets", operation_id="widgets_get"),
+    ),
+)
+
 # _URL now builds from ctx.config.server.base_url (base_url moved off Resource to ClientConfig).
 CTX = EmitContext(
     package_root="ycli.yandex.tracker",
@@ -27,9 +40,9 @@ def _emit(res):
     return RuffFormatter().format(_surface().emit(res, CTX))
 
 
-def test_tests_applies_only_when_cases_exist(me_resource, priorities_resource):
+def test_tests_applies_only_when_cases_exist(me_resource):
     assert _surface().applies(me_resource) is True
-    assert _surface().applies(priorities_resource) is False  # priorities carries no test cases
+    assert _surface().applies(_NO_TESTS_RESOURCE) is False
 
 
 def test_me_tests(me_resource):

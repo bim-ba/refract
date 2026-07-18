@@ -76,3 +76,62 @@ def test_resolve_tests_renders_all_tests_bearing_ops(two_op_tested_resource, ctx
     assert any("test_first" in t for t in names)
     assert any("test_second" in t for t in names)
     assert sum(c.startswith("_URL") for c in page.constants) == 2
+
+
+def _write_op_with_nested_body() -> ir.Operation:
+    """A write op whose body model has a nested `ref<...>` field - mirrors `PriorityCreate.name:
+    ref<LocalizedName>` - so the literal test `call` constructs BOTH classes, e.g.
+    `WidgetCreate(name=WidgetName(en="x"))`.
+    """
+    case = ir.TestCase(
+        name="create_client",
+        kind=ir.TestKind.CLIENT,
+        http_method="POST",
+        path="widgets",
+        status=200,
+        response_json={"id": 1},
+        has_json=True,
+        asserts=["isinstance(widget, Widget)"],
+        call='WidgetClient(token="t").widgets.create(WidgetCreate(name=WidgetName(en="x")))',
+    )
+    return ir.Operation(
+        name="create",
+        method="POST",
+        path="widgets",
+        operation_id="widgets_create",
+        body=ir.Body(model="WidgetCreate"),
+        response_model="Widget",
+        tests=(case,),
+    )
+
+
+@pytest.fixture
+def write_op_resource() -> ir.Resource:
+    return ir.Resource(
+        domain="widget",
+        resource="widgets",
+        security="token",
+        models=(
+            ir.ObjectModel(
+                name="WidgetCreate",
+                fields=(ir.Field(name="name", type=ir.RefType(target="WidgetName")),),
+            ),
+        ),
+        operations=(_write_op_with_nested_body(),),
+    )
+
+
+def test_resolve_tests_client_write_op_imports_body_and_nested_ref_models(
+    write_op_resource, ctx, parts
+):
+    """A CLIENT-kind test on a write op must import the body model (`op.body.model`) AND any
+    directly-nested `ref<...>` field of that body model - both classes appear literally in the
+    authored `call` string, so both need a `from ...models import ...` line or the generated test
+    module is invalid Python (NameError at import/run time).
+    """
+    page = resolve_tests(write_op_resource, ctx, *parts)
+    # ctx.package_root ("ycli.widget.widgets") + res.resource ("widgets") - matches the shared
+    # `ctx` fixture above, which already ends in the resource segment. `Widget` (the response
+    # model) shares the same module, so it merges into the same grouped import line.
+    model_import = "from ycli.widget.widgets.widgets.models import Widget, WidgetCreate, WidgetName"
+    assert model_import in page.import_lines
