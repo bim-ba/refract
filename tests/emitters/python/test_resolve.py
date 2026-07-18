@@ -78,6 +78,16 @@ def test_model_field_with_quoted_description_emits_parseable_source():
     assert 'description="The \\"primary\\" key of the priority."' in decl
 
 
+def test_model_field_required_no_description_omits_none_default():
+    """A required (non-optional) field with no description/alias renders `name: type` with NO
+    `= None`. `= None` would wrongly default a required field to None and mistype a non-None
+    annotation (e.g. `str = None`). Surfaced by the synthesized `Literal[tag]` discriminator field,
+    which is required and description-less."""
+    field = ir.Field(name="key", type=ir.ScalarType(scalar="string"))  # required, no desc/alias
+    decl, _imports = resolve._model_field(field, TYPE_MAPPER)
+    assert decl == "    key: str"  # NOT "    key: str = None"
+
+
 def test_model_field_with_alias_emits_field_alias():
     """`field.alias` must render `Field(alias=...)` even without a description."""
     field = ir.Field(name="type_", type=ir.ScalarType(scalar="string"), alias="type")

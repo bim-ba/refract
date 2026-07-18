@@ -40,6 +40,12 @@ def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Im
         text = f"Annotated[{text}, __FIELD__]"
         imports += [Import("typing", "Annotated"), Import("pydantic", "Field")]
     if rendered.discriminator is None and not field.description and not field.alias:
+        # A required field (no explicit default, non-optional) has `default is None` here - emit a
+        # bare `name: type` (pydantic-required), NOT `name: type = None` which would default it to
+        # None and mistype a non-None annotation. An optional field's `default` is the STRING
+        # "None" (from null_default), so it still renders `= None`.
+        if default is None:
+            return f"    {field.name}: {text}", imports
         return f"    {field.name}: {text} = {default}", imports
     arguments: list[str] = []
     if rendered.discriminator is not None:
