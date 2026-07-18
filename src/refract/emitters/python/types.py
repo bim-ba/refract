@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from itertools import chain
 from typing import assert_never
 
 from refract.emitters.api import Import, RenderedType, TypeMapper
@@ -36,7 +37,16 @@ class PythonTypeMapper(TypeMapper):
                 return RenderedType(
                     text=f"dict[{kr.text}, {vr.text}]", imports=kr.imports + vr.imports
                 )
-            case UnionType():  # TEMPORARY (Task 2): Task 3 adds the real undiscriminated arm
-                raise NotImplementedError
+            # Unguarded on `discriminator` so this arm covers the WHOLE UnionType (keeps the
+            # `match` exhaustive for ty). Task 5 extends this arm to branch on the discriminator
+            # (a discriminated union additionally carries `RenderedType.discriminator`); until then
+            # both kinds lower to the bare PEP-604 union text, and no discriminated union is
+            # rendered before Task 5.
+            case UnionType(variants=variants):
+                rendered = [self._base(v) for v in variants]
+                text = " | ".join(r.text for r in rendered)
+                return RenderedType(
+                    text=text, imports=tuple(chain.from_iterable(r.imports for r in rendered))
+                )
             case _:
                 assert_never(neutral_type)

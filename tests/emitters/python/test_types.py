@@ -1,5 +1,3 @@
-import pytest
-
 from refract.emitters.api import Import
 from refract.emitters.python.types import PythonTypeMapper
 from refract.ir.types import ListType, MapType, RefType, ScalarType, UnionType
@@ -41,8 +39,30 @@ def test_containers():
     )
 
 
-def test_union_is_temporarily_not_implemented():
-    """TEMPORARY (Task 2 placeholder): Task 3 replaces this arm with real lowering + this test."""
-    union = UnionType(variants=(ScalarType(scalar="string"), ScalarType(scalar="integer")))
-    with pytest.raises(NotImplementedError):
-        m.render(union, optional=False)
+def test_undiscriminated_scalar_union_renders_pep604():
+    union = UnionType(
+        variants=(ScalarType(scalar="string"), ScalarType(scalar="integer")), discriminator=None
+    )
+    assert m.render(union, optional=False).text == "str | int"
+
+
+def test_undiscriminated_union_optional_wraps_whole():
+    union = UnionType(
+        variants=(ScalarType(scalar="string"), ScalarType(scalar="integer")), discriminator=None
+    )
+    assert m.render(union, optional=True).text == "str | int | None"
+
+
+def test_undiscriminated_union_of_refs_renders_bare_names():
+    union = UnionType(
+        variants=(RefType(target="Paragraph"), RefType(target="Heading1Block")), discriminator=None
+    )
+    assert m.render(union, optional=False).text == "Paragraph | Heading1Block"
+
+
+def test_union_with_any_variant_pulls_the_typing_import():
+    union = UnionType(
+        variants=(ScalarType(scalar="any"), ScalarType(scalar="integer")), discriminator=None
+    )
+    rendered = m.render(union, optional=False)
+    assert any(imp.module == "typing" and imp.name == "Any" for imp in rendered.imports)
