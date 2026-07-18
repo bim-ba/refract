@@ -1,9 +1,11 @@
 import importlib
+import json
 import subprocess
 import sys
 
 import httpx
 import pytest
+from typer.testing import CliRunner
 
 from refract import ir
 from refract.emitters.api import EmitContext
@@ -11,6 +13,7 @@ from refract.emitters.python.docstrings import PythonDocstrings
 from refract.emitters.python.environment import make_environment
 from refract.emitters.python.format import RuffFormatter
 from refract.emitters.python.naming import PythonNaming
+from refract.emitters.python.surfaces.cli import CliSurface
 from refract.emitters.python.surfaces.client import ClientSurface
 from refract.emitters.python.surfaces.requests import RequestsSurface
 from refract.emitters.python.surfaces.root_client import RootClientSurface
@@ -169,6 +172,108 @@ def test_generated_requests_with_shadowed_param_is_ruff_clean(tmp_path):
         ["ruff", "check", "--select", "A002", str(module)], capture_output=True, text=True
     )
     assert result.returncode == 0, result.stdout + result.stderr  # no builtin-arg-shadow
+
+
+# create gains a cli facet so CliSurface emits an assembled `create` command; client/_requests are
+# unaffected (those surfaces never read op.cli).
+_CLI_WIDGET = _WIDGET.model_copy(
+    update={
+        "operations": tuple(
+            op.model_copy(
+                update={"cli": ir.CliMeta(name="create", documentation="Create a widget.")}
+            )
+            if op.name == "create"
+            else op
+            for op in _WIDGET.operations
+        )
+    }
+)
+
+
+def _write_cli(tmp_path, pkg):
+    """Generate the assembled `create` command into the package, plus the ycli-side AppContext /
+    Serializer shims the generated cli.py imports (`ycli.cli.context` / `ycli.cli.output`)."""
+    parts = (PythonNaming(), PythonTypeMapper(), PythonDocstrings(), make_environment())
+    ctx = EmitContext(package_root="demopkg", config=_CONFIG)
+    (pkg / "widget" / "cli.py").write_text(
+        RuffFormatter().format(CliSurface(*parts).emit(_CLI_WIDGET, ctx)), encoding="utf-8"
+    )
+    cli_shim = tmp_path / "ycli" / "cli"
+    cli_shim.mkdir(parents=True)
+    (tmp_path / "ycli" / "__init__.py").write_text("", encoding="utf-8")
+    (cli_shim / "__init__.py").write_text("", encoding="utf-8")
+    # AppContext.from_typer_context builds the real generated DemoClient (domain attr `demo`);
+    # `app_ctx.demo.widget.create(...)` routes through it to Session.send over httpx.
+    (cli_shim / "context.py").write_text(
+        "from demopkg.client import DemoClient\n\n\n"
+        "class AppContext:\n"
+        "    def __init__(self):\n"
+        "        self.demo = DemoClient(token='x')\n"
+        "        self.strategy = None\n"
+        "        self.console = None\n\n"
+        "    @classmethod\n"
+        "    def from_typer_context(cls, ctx):\n"
+        "        return cls()\n",
+        encoding="utf-8",
+    )
+    (cli_shim / "output.py").write_text(
+        "class Serializer:\n"
+        "    @staticmethod\n"
+        "    def serialize(result, strategy, console):\n"
+        "        return None\n",
+        encoding="utf-8",
+    )
+
+
+def test_generated_cli_create_reassembles_body_and_sends(tmp_path, monkeypatch):
+    """L3 proof for D5 (Assembled-CLI): typer must accept the assembled `create` signature, the
+    flat `name` option must reassemble into `WidgetCreate(name=...)`, and the POST must reach the
+    transport carrying that body. Shims the ycli-side AppContext/Serializer the cli.py imports."""
+    pkg = _write_pkg(tmp_path)
+    _write_cli(tmp_path, pkg)
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    captured: dict[str, object] = {}
+
+    def handler(request):
+        assert request.headers["Authorization"] == "Bearer x"  # DemoClient(token='x') auth
+        if request.method == "POST":
+            captured["body"] = json.loads(request.content)
+            return httpx.Response(200, json={"id": 1, "name": "cli-name"})
+        return httpx.Response(200, json={"id": 1, "name": "x"})
+
+    real_client = httpx.Client
+
+    def stub_client(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return real_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "Client", stub_client)
+    try:
+        cli_mod = importlib.import_module("demopkg.widget.cli")
+        # `app` is the `widget` group; `create` is its subcommand, `cli-name` the positional leaf
+        result = CliRunner().invoke(cli_mod.app, ["create", "cli-name"])
+        assert result.exit_code == 0, result.output
+        assert captured["body"] == {"name": "cli-name"}  # reassembled body reached the transport
+    finally:
+        for name in (
+            "demopkg.widget.cli",
+            "ycli.cli.context",
+            "ycli.cli.output",
+            "ycli.cli",
+            "ycli",
+            "demopkg.client",
+            "demopkg.widget.client",
+            "demopkg.widget._requests",
+            "demopkg.widget.models",
+            "demopkg.widget",
+            "demopkg.runtime.session",
+            "demopkg.runtime.auth",
+            "demopkg.runtime",
+            "demopkg.base",
+            "demopkg",
+        ):
+            sys.modules.pop(name, None)
 
 
 def test_generated_root_client_imports_and_sends(tmp_path, monkeypatch):
