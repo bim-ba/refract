@@ -96,7 +96,9 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 [tool.ty.src]
 # See the ruff extend-exclude note: examples/ is external golden source (imports ycli/uplink,
 # not installed here), a byte-equality oracle — not refract code to type-check.
-exclude = ["examples"]
+# scripts/ holds standalone PEP-723 research tooling (fetch_docs.py imports `requests` from its
+# own inline env, not the project deps) — tooling, not the refract package.
+exclude = ["examples", "scripts"]
 
 [tool.ty.environment]
 python-version = "3.12"
