@@ -537,10 +537,12 @@ def _option_decl(
 
 
 def _handler_hint(op: ir.Operation, field: ir.Field) -> str:
-    """The Q1 escape-hatch message - single source so both reject arms match byte-for-byte."""
+    """The unsupported-body-shape message - single source so both reject arms match byte-for-byte.
+    Names the Q1 ``handler:`` escape as the planned mechanism, but states plainly that it is not yet
+    wired: no emitter reads ``op.handler`` today, so the message must not imply setting it works."""
     return (
-        f"{op.name}: body field {field.name!r} needs handler: "
-        "(Assembled-CLI covers scalar + one-level ref)"
+        f"{op.name}: body field {field.name!r} needs a handler (not yet implemented) - "
+        "Assembled-CLI covers scalar + one-level ref only"
     )
 
 
@@ -548,7 +550,10 @@ def _require_object_model(op: ir.Operation, model: ir.Model) -> ObjectModel:
     """Narrow a body/ref-target ``Model`` to ``ObjectModel`` - fail loud (not a bare ``assert``,
     which ``python -O`` strips) when it names a ``RootListModel`` instead."""
     if not isinstance(model, ObjectModel):
-        raise SpecError(f"{op.name}: body model {model.name!r} is not an object (needs handler:)")
+        raise SpecError(
+            f"{op.name}: body model {model.name!r} is not an object - "
+            "needs a handler (not yet implemented)"
+        )
     return model
 
 
@@ -560,7 +565,10 @@ def _reject_duplicate_options(op: ir.Operation, option_names: list[str]) -> None
     seen: set[str] = set()
     for name in option_names:
         if name in seen:
-            raise SpecError(f"{op.name}: CLI option name collision on {name!r} - needs handler:")
+            raise SpecError(
+                f"{op.name}: CLI parameter name collision on {name!r} - "
+                "rename the colliding field or param"
+            )
         seen.add(name)
 
 
@@ -574,7 +582,7 @@ def _assembled_options(
     scalar fields into ``<parent>_<child>`` options reassembled
     ``parent=Target(child=<parent>_<child>, ...)``. Any shape past scalar + one-level-ref (map,
     list, a ref nested two levels down) is the Q1 escape hatch - a ``SpecError`` naming the field
-    and suggesting a ``handler:``.
+    (the ``handler:`` escape is planned but not yet wired into any emitter).
 
     Returns ``(option_decls, reassembly_expr, imports)``. For a PriorityCreate {key, name:
     ref<LocalizedName>{ru?, en?}, order?, description?} body the expr is exactly

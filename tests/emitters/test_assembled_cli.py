@@ -1,6 +1,6 @@
 """Task 8 (D5a): the Assembled-CLI option builder - `_assembled_options` walks a write op's body
 model into flat typer options + a reassembly expression, with the Q1 escape hatch (`SpecError`
-suggesting a `handler:`) for any shape past scalar + one-level ref.
+for any shape past scalar + one-level ref; the `handler:` escape is planned but not yet wired).
 
 Fixtures are synthetic (built in-Python, mirroring examples/ycli-tracker/.../priorities) so the
 walk is exercised without loading a spec file.
@@ -102,7 +102,7 @@ def test_assembled_options_rejects_map_body():
     labels = ir.MapType(key=_STRING, value=_STRING)
     model = ir.ObjectModel(name="Bulk", fields=(ir.Field(name="labels", type=labels),))
     res = _single_body_resource(model)
-    with pytest.raises(SpecError, match="handler:"):
+    with pytest.raises(SpecError, match="not yet implemented"):
         resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
 
 
@@ -130,7 +130,7 @@ def test_assembled_options_rejects_two_level_ref():
             ),
         ),
     )
-    with pytest.raises(SpecError, match="handler:"):
+    with pytest.raises(SpecError, match="not yet implemented"):
         resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
 
 
@@ -156,7 +156,7 @@ def test_assembled_options_rejects_ref_to_root_list_target():
             ),
         ),
     )
-    with pytest.raises(SpecError, match=r"not an object.*handler:"):
+    with pytest.raises(SpecError, match=r"not an object.*not yet implemented"):
         resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
 
 
