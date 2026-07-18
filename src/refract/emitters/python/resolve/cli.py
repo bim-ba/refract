@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, assert_never
 
 from refract.emitters.api import Import
 from refract.emitters.python.resolve._common import (
-    _referenced_model_names,
     param_decl,
     py_str,
     render_imports,
@@ -246,26 +245,25 @@ def _assembled_options(
     ``PriorityCreate(key=key, name=LocalizedName(ru=name_ru, en=name_en), order=order,
     description=description)``.
 
-    Import ASSEMBLY shares `_referenced_model_names` with `_body_test_imports` (both walk the
-    body model's ref-reachable names); the flatten-or-reject DECISION below is unaffected - it
-    still walks one level by hand and still raises the Q1 escape hatch for anything past
-    scalar + one-level ref (a list/map/deeper-ref/union body field never reaches this import list
-    without first raising below).
+    Import ASSEMBLY collects the body model + each ACCEPTED one-level ref target as the per-field
+    loop confirms it (NOT an eager transitive walk). The flatten-or-reject DECISION raises the Q1
+    escape hatch for anything past scalar + one-level ref, so a rejected shape reports its
+    `handler:` SpecError before any deeper/dangling ref is ever resolved.
     """
     body = op.body
     if body is None:  # write-op only; a bodyless op reaching here is a wiring bug - fail loud
         raise ValueError(f"{op.name}: assembled options require a write body")
     model = _require_object_model(op, res.model(body.model))
-    # Imports open with the body model (the reassembly ctor) + every transitively ref-reachable
-    # model name; `.models` mirrors requests/client - the CLI wiring (D5b) supplies the final
-    # module (`_remap_to_resource_models`).
+    # Imports open with the body model (the reassembly ctor); each accepted one-level ref target is
+    # appended at the point of acceptance below - NOT via an eager `_referenced_model_names` walk,
+    # which would resolve refs inside a shape the per-field loop is about to REJECT and leak a bare
+    # KeyError (from `res.model` on a dangling nested ref) instead of the friendly `handler:`
+    # SpecError. On the accepted path (scalar + one-level ref) that walk finds nothing beyond these
+    # targets anyway. `.models` mirrors requests/client - the CLI wiring (D5b) supplies the module.
     option_decls: list[str] = []
     option_names: list[str] = []
     reassembly: list[str] = []
-    imports: list[Import] = [
-        Import(".models", body.model),
-        *(Import(".models", name) for name in _referenced_model_names(model, res)),
-    ]
+    imports: list[Import] = [Import(".models", body.model)]
     for field in model.fields:
         match field.type:
             case ScalarType():
@@ -295,7 +293,7 @@ def _assembled_options(
                             raise SpecError(_handler_hint(op, field))
                         case _:  # closed union (ir/types.py) - unreachable, not a real arm
                             assert_never(child.type)
-                # `target`'s import is already in `imports` (the walker collected it up front).
+                imports.append(Import(".models", target))  # accepted one-level ref -> import target
                 reassembly.append(f"{field.name}={target}({', '.join(inner)})")
             case ListType() | MapType() | UnionType() | LiteralType():  # not flattenable to scalars
                 raise SpecError(_handler_hint(op, field))

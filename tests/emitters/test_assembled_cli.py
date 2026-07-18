@@ -134,6 +134,26 @@ def test_assembled_options_rejects_two_level_ref():
         resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
 
 
+def test_assembled_options_rejects_unsupported_shape_before_resolving_dangling_nested_ref():
+    """An unsupported-shape body field (here a `map<string, ref<Undeclared>>`) that ALSO contains a
+    dangling (undeclared) nested ref must still report the friendly `handler:` SpecError, NOT leak a
+    bare `KeyError` from `res.model`. The flatten-or-reject decision runs per-field BEFORE any
+    transitive ref resolution, so a malformed in-progress spec degrades gracefully. (Regression: an
+    eager `_referenced_model_names` walk over the whole body model resolved the dangling ref first
+    and raised `KeyError` before the reject arm was reached.)"""
+    model = ir.ObjectModel(
+        name="Bulk",
+        fields=(
+            ir.Field(
+                name="items", type=ir.MapType(key=_STRING, value=ir.RefType(target="Undeclared"))
+            ),
+        ),
+    )
+    res = _single_body_resource(model)  # `Undeclared` is intentionally NOT declared
+    with pytest.raises(SpecError, match="not yet implemented"):
+        resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
+
+
 def test_assembled_options_rejects_ref_to_root_list_target():
     """A ref field targeting a `root_list` model can't be narrowed to scalar children - fail loud
     with a `SpecError` (not the bare `AssertionError` `python -O` would strip)."""
