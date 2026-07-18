@@ -87,3 +87,10 @@ def test_union_type_requires_at_least_two_variants():
 def test_literal_type_round_trips():
     lit = LiteralType(value="heading_1")
     assert LiteralType.model_validate(lit.model_dump()) == lit
+
+
+def test_scalar_type_format_defaults_none_and_round_trips():
+    st = ScalarType(scalar="integer", format="int64")
+    assert st.format == "int64"
+    assert ScalarType(scalar="integer").format is None
+    assert ScalarType.model_validate(st.model_dump()) == st

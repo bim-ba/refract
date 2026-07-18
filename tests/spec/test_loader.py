@@ -258,6 +258,28 @@ def test_field_with_neither_type_nor_oneof_raises():
         _field(nodes.FieldSpec(name="block"))
 
 
+def test_format_lands_on_scalar_type():
+    field = _field(nodes.FieldSpec(name="cores", type="integer", format="int64"))
+    assert field.type == ScalarType(scalar="integer", format="int64")
+
+
+def test_format_on_non_scalar_raises():
+    with pytest.raises(SpecError, match="format is only valid on a scalar"):
+        _field(nodes.FieldSpec(name="meta", type="ref<ObjectMeta>", format="int64"))
+
+
+def test_format_on_oneof_union_raises():
+    """format combines onto a parsed ScalarType; a oneof-derived UnionType is a non-scalar too -
+    the SpecError arm must fire for the Task-4 oneof branch, not just the plain `type:` branch."""
+    spec = nodes.FieldSpec(
+        name="block",
+        format="int64",
+        oneof=nodes.OneOfSpec(variants={"id": "string", "full": "ref<Customer>"}),
+    )
+    with pytest.raises(SpecError, match="format is only valid on a scalar"):
+        _field(spec)
+
+
 def test_root_list_without_item_raises_spec_error(tmp_path: Path):
     resource_yaml = tmp_path / "resource.yaml"
     resource_yaml.write_text(

@@ -74,6 +74,10 @@ def _field(spec: nodes.FieldSpec) -> ir.Field:
         neutral_type = parse_neutral_type(spec.type)
     else:
         raise SpecError(f"field {spec.name!r}: needs 'type' or 'oneof'")
+    if spec.format is not None:
+        if not isinstance(neutral_type, ScalarType):
+            raise SpecError(f"field {spec.name!r}: format is only valid on a scalar type")
+        neutral_type = neutral_type.model_copy(update={"format": spec.format})
     return ir.Field(
         name=spec.name,
         type=neutral_type,

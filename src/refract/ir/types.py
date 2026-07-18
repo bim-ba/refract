@@ -31,6 +31,7 @@ class _Node(BaseModel):
 class ScalarType(_Node):
     kind: Literal["scalar"] = "scalar"
     scalar: Scalar
+    format: str | None = None  # "int64" | "date-time" | "rfc2822" | ...; None = no coercion
 
 
 class RefType(_Node):
