@@ -21,7 +21,7 @@ def _emit(res):
 
 def test_cli_applies_only_when_a_cli_facet_exists(me_resource, priorities_resource):
     assert _surface().applies(me_resource) is True
-    assert _surface().applies(priorities_resource) is False  # priorities has no cli facet
+    assert _surface().applies(priorities_resource) is True  # create/edit now carry a cli facet
 
 
 def test_me_cli(me_resource):
