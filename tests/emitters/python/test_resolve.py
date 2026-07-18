@@ -85,30 +85,6 @@ def test_model_field_with_alias_emits_field_alias():
     assert "Field(" in decl
 
 
-def _op(**overrides) -> ir.Operation:
-    fields = {
-        "name": "get",
-        "method": "GET",
-        "path": "p",
-        "operation_id": "get",
-        "response_model": "Thing",
-    }
-    fields.update(overrides)
-    return ir.Operation(**fields)
-
-
-def test_request_function_raises_without_response_model():
-    op = _op(response_model=None)
-    with pytest.raises(ValueError, match="no response model"):
-        resolve._request_function(op, NAMING, TYPE_MAPPER, DOCSTRINGS)
-
-
-def test_client_method_raises_without_response_model():
-    op = _op(response_model=None)
-    with pytest.raises(ValueError, match="no response model"):
-        resolve._client_method(op, NAMING, TYPE_MAPPER, DOCSTRINGS)
-
-
 def test_cli_command_raises_without_cli_facet(me_resource):
     op = me_resource.operations[0].model_copy(update={"cli": None})
     with pytest.raises(ValueError, match="no cli facet"):

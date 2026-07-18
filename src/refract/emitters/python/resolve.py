@@ -128,12 +128,14 @@ def _request_function(
         imports.append(Import(".models", body.model))
     params = signature_params(positional, keyword_only)
     response_model = op.response_model
-    if response_model is None:  # 204/no-body ops aren't in the walking skeleton yet - fail loud
-        raise ValueError(f"{op.name}: operation has no response model (not yet supported)")
-    imports.append(Import(".models", response_model))
+    if response_model is None:  # bodyless op (204/201) -> Request[None], no response import
+        return_type, response_kwarg = "None", "response_model=None"
+    else:
+        imports.append(Import(".models", response_model))
+        return_type, response_kwarg = response_model, f"response_model={response_model}"
     function_name = naming.module_function(op.name)
     param_list = ", ".join(params)
-    sig = f"def {function_name}({param_list}) -> Request[{response_model}]:"
+    sig = f"def {function_name}({param_list}) -> Request[{return_type}]:"
 
     kwargs = [f'method="{op.method}"', f"path={path_expr(op.path)}"]
     query_items = [f'"{p.alias or p.name}": {p.name}' for p in op.params if p.loc == "query"]
@@ -143,7 +145,7 @@ def _request_function(
         kwargs.append(
             f"json_body=body.model_dump(by_alias={body.by_alias}, exclude_none={body.omit_none})"
         )
-    kwargs.append(f"response_model={response_model}")
+    kwargs.append(response_kwarg)
 
     doc = docstrings.render(_request_doc(op, write=body is not None), "    ")
     lines = [sig, *doc, f"    return Request({', '.join(kwargs)})"]
@@ -191,10 +193,10 @@ def _client_method(
         imports.append(Import(".models", body.model))
     params = signature_params(positional, keyword_only)
     response_model = op.response_model
-    if response_model is None:  # 204/no-body ops aren't in the walking skeleton yet - fail loud
-        raise ValueError(f"{op.name}: operation has no response model (not yet supported)")
-    imports.append(Import(".models", response_model))
-    sig = f"def {op.name}({', '.join(params)}) -> {response_model}:"
+    if response_model is not None:  # bodyless op (204/201) -> `-> None`, no response import
+        imports.append(Import(".models", response_model))
+    return_type = response_model or "None"
+    sig = f"def {op.name}({', '.join(params)}) -> {return_type}:"
     call = f"_requests.{naming.module_function(op.name)}({', '.join(call_args)})"
     doc = docstrings.render(op.documentation, "    ")
     body_lines = (sig, *doc, f"    return self._session.send({call})")
@@ -435,7 +437,8 @@ def _mcp_tool(
     )
     parameters, imports = _mcp_signature(res, op, naming, type_mapper)
     signature = (
-        f"def {naming.module_function(op.name)}({', '.join(parameters)}) -> {op.response_model}:"
+        f"def {naming.module_function(op.name)}({', '.join(parameters)}) "
+        f"-> {op.response_model or 'None'}:"
     )
     call = f"client.{res.resource}.{op.name}({_mcp_call_args(op, type_mapper)})"
     guard = meta.require_found
