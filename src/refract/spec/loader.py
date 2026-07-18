@@ -69,6 +69,16 @@ def _field(spec: nodes.FieldSpec) -> ir.Field:
 
 
 def _param(spec: nodes.ParamSpec) -> ir.Param:
+    # A path param fills a `{...}` slot in the URL and is therefore always required. Permitting
+    # `optional`/`default` on it is a representable illegal state: every non-CLI surface appends
+    # `body: <model>` (no default) after the path decls, so a defaulted path param before the body
+    # renders a required-after-default SyntaxError. Reject at the boundary (make it unrepresentable)
+    # rather than let it reach the emitter.
+    if spec.loc == "path" and (spec.optional or spec.default is not None):
+        raise SpecError(
+            f"param {spec.name!r}: a path param is always required - it cannot be optional or "
+            "carry a default"
+        )
     return ir.Param(
         name=spec.name,
         loc=spec.loc,
@@ -130,11 +140,12 @@ def _test(spec: nodes.TestSpec) -> ir.TestCase:
     )
 
 
-def _response_model(name: str, responses: dict[int, nodes.ResponseSpec]) -> str:
-    """The success response's model name (``responses[200].model``)."""
-    if 200 not in responses:
-        raise SpecError(f"operation {name!r} has no 200 response model")
-    return responses[200].model
+def _response_model(name: str, responses: dict[int, nodes.ResponseSpec]) -> str | None:
+    """The first-2xx success model name, or None for a bodyless success. SpecError if no 2xx."""
+    success = [status for status in responses if 200 <= status < 300]
+    if not success:
+        raise SpecError(f"operation {name!r} has no 2xx response")
+    return responses[min(success)].model
 
 
 def _operation(spec: nodes.OperationSpec) -> ir.Operation:

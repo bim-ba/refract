@@ -12,3 +12,9 @@ dist/
 PROMPT.md
 
 artifacts/
+
+# Vendored external API docs — local-only research anchor (regenerate via scripts/fetch_docs.py).
+# Committed: the README scaffolding; ignored: the fetched corpus (Yandex User Agreement / size).
+references/**
+!references/**/
+!references/**/README.md

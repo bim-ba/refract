@@ -43,6 +43,7 @@ addopts = "--strict-markers --import-mode=importlib --cov=refract --cov-report=t
 
 [tool.coverage.run]
 source = ["src/refract"]
+branch = true
 
 [tool.coverage.report]
 show_missing = true
@@ -58,7 +59,7 @@ exclude_also = [
     "\\.\\.\\.\\s*$",
     "assert_never",
     # the bare wildcard match-arm header pairs 1:1 with `assert_never` in this codebase (verified:
-    # 4 occurrences, all exhaustive-union fallthroughs) - excluded so the unreachable-by-
+    # 6 occurrences, all exhaustive-union fallthroughs) - excluded so the unreachable-by-
     # construction case-header line doesn't count separately from its already-excluded body.
     "case _:",
 ]
@@ -96,7 +97,9 @@ runtime-evaluated-base-classes = ["pydantic.BaseModel"]
 [tool.ty.src]
 # See the ruff extend-exclude note: examples/ is external golden source (imports ycli/uplink,
 # not installed here), a byte-equality oracle — not refract code to type-check.
-exclude = ["examples"]
+# scripts/ holds standalone PEP-723 research tooling (fetch_docs.py imports `requests` from its
+# own inline env, not the project deps) — tooling, not the refract package.
+exclude = ["examples", "scripts"]
 
 [tool.ty.environment]
 python-version = "3.12"

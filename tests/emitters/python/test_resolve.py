@@ -13,6 +13,7 @@ from refract.spec import SpecError
 NAMING = PythonNaming()
 TYPE_MAPPER = PythonTypeMapper()
 DOCSTRINGS = PythonDocstrings()
+CTX = EmitContext(package_root="ycli.yandex.tracker")
 
 
 def test_render_imports_groups_and_merges():
@@ -85,34 +86,85 @@ def test_model_field_with_alias_emits_field_alias():
     assert "Field(" in decl
 
 
-def _op(**overrides) -> ir.Operation:
-    fields = {
-        "name": "get",
-        "method": "GET",
-        "path": "p",
-        "operation_id": "get",
-        "response_model": "Thing",
-    }
-    fields.update(overrides)
-    return ir.Operation(**fields)
+_STRING = ir.ScalarType(scalar="string")
 
 
-def test_request_function_raises_without_response_model():
-    op = _op(response_model=None)
-    with pytest.raises(ValueError, match="no response model"):
-        resolve._request_function(op, NAMING, TYPE_MAPPER, DOCSTRINGS)
+def _shadowed_op() -> ir.Operation:
+    """A GET with a builtin-named path param (`id`) and a builtin-named query param (`type`)."""
+    return ir.Operation(
+        name="fetch",
+        method="GET",
+        path="widget/{id}",
+        operation_id="widget_fetch",
+        params=(
+            ir.Param(name="id", loc="path", type=_STRING),
+            ir.Param(name="type", loc="query", type=_STRING, optional=True),
+        ),
+        response_model="Widget",
+    )
 
 
-def test_client_method_raises_without_response_model():
-    op = _op(response_model=None)
-    with pytest.raises(ValueError, match="no response model"):
-        resolve._client_method(op, NAMING, TYPE_MAPPER, DOCSTRINGS)
+def test_request_function_guards_shadowed_path_and_query_identifiers():
+    """A path param `id` / query param `type` shadow builtins: the emitted Python IDENTIFIERS are
+    suffixed (`id_`, `type_`), the path f-string references the guarded var, and the query dict
+    KEY stays the wire name (`type`) while its VALUE is the guarded identifier."""
+    text, _imports = resolve._request_function(_shadowed_op(), NAMING, TYPE_MAPPER, DOCSTRINGS)
+    ast.parse(text)  # a bare `def fetch(id: str, ...)` would need no parse-guard, but `class` would
+    assert "def fetch(id_: str, *, type_: str | None = None)" in text  # guarded identifiers
+    assert 'path=f"widget/{id_}"' in text  # path references the guarded var; the URL is unchanged
+    assert 'query={"type": type_}' in text  # wire KEY stays `type`; VALUE is the guarded identifier
+
+
+def test_request_function_guards_keyword_path_param():
+    """A keyword path param (`class`) is an outright SyntaxError unless guarded to `class_`."""
+    op = ir.Operation(
+        name="fetch",
+        method="GET",
+        path="node/{class}",
+        operation_id="node_fetch",
+        params=(ir.Param(name="class", loc="path", type=_STRING),),
+        response_model="Node",
+    )
+    text, _imports = resolve._request_function(op, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    ast.parse(text)  # `def fetch(class: str)` would raise SyntaxError here
+    assert "def fetch(class_: str)" in text
+    assert 'path=f"node/{class_}"' in text
+
+
+def test_client_method_guards_shadowed_identifiers():
+    """The client sugar method mirrors the guard: guarded signature + guarded builder call."""
+    text, _imports = resolve._client_method(_shadowed_op(), NAMING, TYPE_MAPPER, DOCSTRINGS)
+    ast.parse(f"class C:\n{text}")  # method text is indented one level to sit inside the class
+    assert "def fetch(self, id_: str, *, type_: str | None = None)" in text
+    assert "_requests.fetch(id_, type_=type_)" in text  # positional path + keyword query, guarded
+
+
+def test_mcp_tool_guards_shadowed_identifiers():
+    """The guard flows through `signature_and_call` into the MCP tool signature + client call."""
+    op = _shadowed_op().model_copy(
+        update={
+            "mcp": ir.McpMeta(
+                name="widget_fetch",
+                safety=ir.Safety.RO,
+                title="Fetch a widget",
+                documentation="Fetch a widget.",
+            )
+        }
+    )
+    res = ir.Resource(
+        domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
+    )
+    text, _imports = resolve._mcp_tool(res, op, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    ast.parse(text)
+    assert "id_: str" in text
+    assert "type_: str | None = None" in text
+    assert "client.widgets.fetch(id_, type_=type_)" in text
 
 
 def test_cli_command_raises_without_cli_facet(me_resource):
     op = me_resource.operations[0].model_copy(update={"cli": None})
     with pytest.raises(ValueError, match="no cli facet"):
-        resolve._cli_command(me_resource, op, DOCSTRINGS)
+        resolve._cli_command(me_resource, op, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
 
 
 def test_mcp_tool_raises_without_mcp_facet(me_resource):
@@ -128,6 +180,132 @@ def test_resolve_mcp_skips_operations_without_mcp_facet(me_resource):
     page = resolve.resolve_mcp(res, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
     # one real mcp-faceted op -> one tool; the bare (mcp=None) op contributes nothing
     assert len(page.tools) == 1
+
+
+def test_resolve_mcp_omits_response_model_import_when_none():
+    """A bodyless, responseless mcp-faceted op (e.g. a delete) must skip the response-model
+    import: the tool signature returns ``-> None`` and no ``models_module`` import is emitted."""
+    op = ir.Operation(
+        name="delete",
+        method="DELETE",
+        path="widget/{id}",
+        operation_id="widget_delete",
+        params=(ir.Param(name="id", loc="path", type=_STRING),),
+        mcp=ir.McpMeta(
+            name="widget_delete",
+            safety=ir.Safety.DESTRUCTIVE,
+            title="Delete a widget",
+            documentation="Delete a widget.",
+        ),
+    )
+    res = ir.Resource(
+        domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
+    )
+    ctx = EmitContext(package_root="ycli.yandex.tracker")
+    page = resolve.resolve_mcp(res, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert "-> None:" in page.tools[0]
+    assert not any("widgets.models" in line for line in page.import_lines)
+
+
+def test_body_test_imports_skips_nested_ref_scan_for_non_object_model():
+    """A body model that resolves to something other than ``ObjectModel`` (e.g. a bare
+    ``RootListModel``) has no ``.fields`` to scan for nested refs - the import list is just the
+    body model itself."""
+    tags = ir.RootListModel(name="Tags", item="str")
+    res = ir.Resource(
+        domain="tracker", resource="things", security="oauth_token", models=(tags,), operations=()
+    )
+    models_module = "ycli.yandex.tracker.things.models"
+    imports = resolve._body_test_imports(res, ir.Body(model="Tags"), models_module)
+    assert imports == (Import(models_module, "Tags"),)
+
+
+def test_resolve_tests_cli_only_op_drops_client_surface():
+    """An op whose only test case is CLI-kind (no CLIENT case): the module doc drops the
+    "client" surface label and the import block skips the client-class + response-model imports.
+    The ``_PAYLOAD_`` constant IS still emitted: ``_stub`` references ``_PAYLOAD_<op>`` for every
+    non-guard case (client/cli/mcp alike), so a cli-only op that omitted it would reference an
+    undefined name (C1). The payload is read from the sole non-guard case's fixture."""
+    case = ir.TestCase(
+        name="widgets_list_cli",
+        kind=ir.TestKind.CLI,
+        http_method="GET",
+        path="widgets",
+        status=200,
+        response_json=[],
+        has_json=True,
+        asserts=["res.exit_code == 0"],
+        call="",
+    )
+    op = ir.Operation(
+        name="list",
+        method="GET",
+        path="widgets",
+        operation_id="widgets_list",
+        response_model="WidgetList",
+        cli=ir.CliMeta(name="list", documentation="List widgets."),
+        tests=(case,),
+    )
+    res = ir.Resource(
+        domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
+    )
+    ctx = EmitContext(
+        package_root="ycli.yandex.tracker",
+        config=ir.ClientConfig(
+            name="tracker", server=ir.Server(base_url="https://api.example"), auth=()
+        ),
+    )
+    page = resolve.resolve_tests(res, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert page.doc_block == ('"""Tracker /widgets resource - CLI, HTTP stubbed."""',)
+    assert page.import_lines == (
+        "import json",
+        "import responses",
+        "from typer.testing import CliRunner",
+        "import ycli.cli.app as cli",
+    )
+    assert page.constants == (
+        '_URL_list = "https://api.example/widgets"',
+        "_PAYLOAD_list = []",
+        "_runner = CliRunner()",
+    )
+
+
+def test_resolve_tests_guard_only_op_emits_no_payload():
+    """An op whose only test case is an MCP guard: the guard stub inlines its own ``{}`` fixture
+    (never reads ``_PAYLOAD_``), so no payload constant is emitted. Closes the fallback branch of
+    the payload-case selection (no client case AND no other non-guard case)."""
+    case = ir.TestCase(
+        name="widgets_delete_guard",
+        kind=ir.TestKind.MCP_GUARD,
+        http_method="DELETE",
+        path="widgets/x",
+        status=404,
+        response_json={"error": "not_found"},
+        has_json=True,
+        asserts=(),
+        call="",
+    )
+    op = ir.Operation(
+        name="delete",
+        method="DELETE",
+        path="widgets/{id}",
+        operation_id="widgets_delete",
+        mcp=ir.McpMeta(
+            name="delete", safety=ir.Safety.DESTRUCTIVE, title="Delete", documentation="Delete."
+        ),
+        tests=(case,),
+    )
+    res = ir.Resource(
+        domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
+    )
+    ctx = EmitContext(
+        package_root="ycli.yandex.tracker",
+        config=ir.ClientConfig(
+            name="tracker", server=ir.Server(base_url="https://api.example"), auth=()
+        ),
+    )
+    page = resolve.resolve_tests(res, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert not any(constant.startswith("_PAYLOAD_") for constant in page.constants)
 
 
 def test_resolve_tests_raises_without_client_config(me_resource):
@@ -164,6 +342,21 @@ def test_select_scheme_raises_spec_error_for_unknown_security_name():
     config = ir.ClientConfig(name="x", server=ir.Server(base_url="https://x"), auth=())
     with pytest.raises(SpecError, match=r"nonexistent.*names no auth scheme"):
         resolve._select_scheme(config, "nonexistent")
+
+
+def test_select_scheme_continues_past_non_matching_entries():
+    """``config.auth`` with >1 entry: a non-matching earlier entry must not short-circuit the
+    search - the loop continues until it finds the name that matches ``security``."""
+    other = ir.HeaderAuth(header="X-Other", template="{tok}", inputs=(ir.AuthInput(name="tok"),))
+    wanted = ir.HeaderAuth(
+        header="Authorization", template="Bearer {token}", inputs=(ir.AuthInput(name="token"),)
+    )
+    config = ir.ClientConfig(
+        name="x",
+        server=ir.Server(base_url="https://x"),
+        auth=(("other", other), ("oauth_token", wanted)),
+    )
+    assert resolve._select_scheme(config, "oauth_token") is wanted
 
 
 def test_resolve_root_client_raises_without_client_config(me_resource):

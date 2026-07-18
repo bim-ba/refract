@@ -20,7 +20,7 @@ class Session:
         self._base_url = base_url.rstrip("/")
         self._client = client
 
-    def send(self, request: Request[T]) -> T:
+    def send(self, request: Request[T]) -> T | None:
         params = {k: v for k, v in (request.query or {}).items() if v is not None}
         response = self._client.request(
             request.method,
@@ -32,4 +32,6 @@ class Session:
         # T is unbound (Request is transport-agnostic, not pydantic-specific); response_model is
         # expected to expose model_validate() by convention (a pydantic BaseModel in practice).
         model = request.response_model
+        if model is None:  # bodyless success (204/201-no-content) -> no parse
+            return None
         return model.model_validate(response.json())

@@ -14,7 +14,18 @@ from refract.emitters.python.views import (
     RootClientPageView,
     TestsPageView,
 )
-from refract.ir import HeaderAuth, MultiHeaderAuth, ObjectModel, RootListModel, Safety, TestKind
+from refract.ir import (
+    HeaderAuth,
+    ListType,
+    MapType,
+    MultiHeaderAuth,
+    ObjectModel,
+    RefType,
+    RootListModel,
+    Safety,
+    ScalarType,
+    TestKind,
+)
 from refract.spec import SpecError
 
 # NB: `MultiHeaderAuth`/`HeaderAuth` here are the ir.auth DESCRIPTORS (AuthScheme variants) used
@@ -48,23 +59,41 @@ def indent_lines(lines: tuple[str, ...], prefix: str) -> tuple[str, ...]:
     return tuple(f"{prefix}{line}" if line else "" for line in lines)
 
 
-def param_decl(param: ir.Param, type_mapper: TypeMapper) -> tuple[str, tuple[Import, ...]]:
-    """Render one parameter declaration `name: Type` (+ ` = default`) and its imports."""
+def param_decl(
+    param: ir.Param, type_mapper: TypeMapper, naming: Naming
+) -> tuple[str, tuple[Import, ...]]:
+    """Render one parameter declaration `name: Type` (+ ` = default`) and its imports.
+
+    The declared identifier is shadow-guarded (`id` -> `id_`); the wire name (path placeholder,
+    query alias/key) is preserved by the CALLER, not here."""
     rt = type_mapper.render(param.type, optional=param.optional)
     default = (
         param.default
         if param.default is not None
         else type_mapper.null_default(param.type, optional=param.optional)
     )
-    decl = f"{param.name}: {rt.text}"
+    decl = f"{naming.safe_param(param.name)}: {rt.text}"
     if default is not None:
         decl = f"{decl} = {default}"
     return decl, rt.imports
 
 
-def path_expr(path: str) -> str:
-    """Emit an f-string when the path has `{placeholders}`, else a plain string literal."""
-    return f'f"{path}"' if "{" in path else f'"{path}"'
+def path_expr(path: str, params: tuple[ir.Param, ...], naming: Naming) -> str:
+    """Emit an f-string when the path has `{placeholders}`, else a plain string literal.
+
+    A path placeholder names its path param verbatim (`widget/{id}`); a shadowed name is rewritten
+    to the guarded identifier (`{id}` -> `{id_}`) so the f-string references the safe local var. The
+    substituted URL value is unchanged (a placeholder rename, not a wire change). Query params are
+    never in the path, so they are not considered here.
+    """
+    if "{" not in path:
+        return f'"{path}"'
+    for param in params:
+        if param.loc == "path":
+            safe = naming.safe_param(param.name)
+            if safe != param.name:
+                path = path.replace(f"{{{param.name}}}", f"{{{safe}}}")
+    return f'f"{path}"'
 
 
 def py_str(value: str) -> str:
@@ -80,7 +109,7 @@ def py_str(value: str) -> str:
 
 
 def signature_and_call(
-    op: ir.Operation, type_mapper: TypeMapper
+    op: ir.Operation, type_mapper: TypeMapper, naming: Naming
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[Import, ...]]:
     """(positional_decls, keyword_only_decls, call_args, param_type_imports).
 
@@ -95,9 +124,9 @@ def signature_and_call(
     imports: list[Import] = []
     for p in op.params:
         if p.loc == "path":
-            decl, imp = param_decl(p, type_mapper)
+            decl, imp = param_decl(p, type_mapper, naming)
             positional.append(decl)
-            call_args.append(p.name)
+            call_args.append(naming.safe_param(p.name))
             imports += imp
     if op.body is not None:
         positional.append(f"body: {op.body.model}")
@@ -105,9 +134,9 @@ def signature_and_call(
     keyword_only: list[str] = []
     for p in op.params:
         if p.loc == "query":
-            decl, imp = param_decl(p, type_mapper)
+            decl, imp = param_decl(p, type_mapper, naming)
             keyword_only.append(decl)
-            call_args.append(f"{p.name}={p.name}")
+            call_args.append(f"{naming.safe_param(p.name)}={naming.safe_param(p.name)}")
             imports += imp
     return tuple(positional), tuple(keyword_only), tuple(call_args), tuple(imports)
 
@@ -122,28 +151,34 @@ def _request_function(
     op: ir.Operation, naming: Naming, type_mapper: TypeMapper, docstrings: Docstrings
 ) -> tuple[str, list[Import]]:
     body = op.body  # write iff not None; narrowed to ir.Body below
-    positional, keyword_only, _call_args, param_imports = signature_and_call(op, type_mapper)
+    positional, keyword_only, _call_args, param_imports = signature_and_call(
+        op, type_mapper, naming
+    )
     imports: list[Import] = list(param_imports)
     if body is not None:  # write: `body: <model>` already in `positional`; add its `.models` import
         imports.append(Import(".models", body.model))
     params = signature_params(positional, keyword_only)
     response_model = op.response_model
-    if response_model is None:  # 204/no-body ops aren't in the walking skeleton yet - fail loud
-        raise ValueError(f"{op.name}: operation has no response model (not yet supported)")
-    imports.append(Import(".models", response_model))
+    if response_model is None:  # bodyless op (204/201) -> Request[None], no response import
+        return_type, response_kwarg = "None", "response_model=None"
+    else:
+        imports.append(Import(".models", response_model))
+        return_type, response_kwarg = response_model, f"response_model={response_model}"
     function_name = naming.module_function(op.name)
     param_list = ", ".join(params)
-    sig = f"def {function_name}({param_list}) -> Request[{response_model}]:"
+    sig = f"def {function_name}({param_list}) -> Request[{return_type}]:"
 
-    kwargs = [f'method="{op.method}"', f"path={path_expr(op.path)}"]
-    query_items = [f'"{p.alias or p.name}": {p.name}' for p in op.params if p.loc == "query"]
+    kwargs = [f'method="{op.method}"', f"path={path_expr(op.path, op.params, naming)}"]
+    query_items = [
+        f'"{p.alias or p.name}": {naming.safe_param(p.name)}' for p in op.params if p.loc == "query"
+    ]
     if query_items:
         kwargs.append("query={" + ", ".join(query_items) + "}")
     if body is not None:  # render model_dump flags straight off ir.Body (no .dump)
         kwargs.append(
             f"json_body=body.model_dump(by_alias={body.by_alias}, exclude_none={body.omit_none})"
         )
-    kwargs.append(f"response_model={response_model}")
+    kwargs.append(response_kwarg)
 
     doc = docstrings.render(_request_doc(op, write=body is not None), "    ")
     lines = [sig, *doc, f"    return Request({', '.join(kwargs)})"]
@@ -184,17 +219,17 @@ def _client_method(
     (the shadow guard, so `list` -> `_requests.list_`). Docstring is the FULL `op.documentation`.
     """
     body = op.body  # write iff not None (narrowed to ir.Body below)
-    positional, keyword_only, call_args, param_imports = signature_and_call(op, type_mapper)
+    positional, keyword_only, call_args, param_imports = signature_and_call(op, type_mapper, naming)
     positional = ("self", *positional)
     imports: list[Import] = list(param_imports)
     if body is not None:  # write: typed body forwarded through unchanged; add its `.models` import
         imports.append(Import(".models", body.model))
     params = signature_params(positional, keyword_only)
     response_model = op.response_model
-    if response_model is None:  # 204/no-body ops aren't in the walking skeleton yet - fail loud
-        raise ValueError(f"{op.name}: operation has no response model (not yet supported)")
-    imports.append(Import(".models", response_model))
-    sig = f"def {op.name}({', '.join(params)}) -> {response_model}:"
+    if response_model is not None:  # bodyless op (204/201) -> `-> None`, no response import
+        imports.append(Import(".models", response_model))
+    return_type = response_model or "None"
+    sig = f"def {op.name}({', '.join(params)}) -> {return_type}:"
     call = f"_requests.{naming.module_function(op.name)}({', '.join(call_args)})"
     doc = docstrings.render(op.documentation, "    ")
     body_lines = (sig, *doc, f"    return self._session.send({call})")
@@ -329,25 +364,112 @@ def resolve_models(
 _GROUP_DOC = "Group anchor - forces subcommand dispatch (no eager DI, so --help stays cred-free)."
 
 
-def _cli_command(res: ir.Resource, op: ir.Operation, docstrings: Docstrings) -> str:
-    """The finished text for one passthrough ``@app.command()`` leaf.
+def _remap_to_resource_models(
+    ctx: EmitContext, res: ir.Resource, imports: list[Import]
+) -> list[Import]:
+    """Rewrite each ``.models`` relative import to the resource's ABSOLUTE models module.
 
-    Param-less (mirrors the current `me` emitter): resolves ``AppContext`` and forwards the call
-    to ``app_ctx.<domain>.<resource>.<op>()`` through ``Serializer.serialize``. The command name
-    is author-controlled via ``op.cli.name`` (not necessarily ``op.name``).
+    ``_assembled_options`` mirrors requests/client with ``Import(".models", X)``, but inside the
+    generated cli package (``ycli.cli``) ``.models`` resolves to ``ycli.cli.models`` - wrong. The
+    absolute target is the same one ``resolve_mcp`` uses: ``<package_root>.<resource>.models``.
+    Non-``.models`` imports (path/query scalar types) pass through untouched.
+    """
+    models_module = f"{ctx.package_root}.{res.resource}.models"
+    return [Import(models_module, imp.name) if imp.module == ".models" else imp for imp in imports]
+
+
+def _partition_by_default(decls: list[str]) -> tuple[list[str], list[str]]:
+    """Split param decls into ``(no_default, with_default)``, preserving relative order in each.
+
+    A decl carries a default iff it contains ``" = "``: ``param_decl``/``_option_decl`` render a
+    default as literally `` = <expr>`` appended to the type text, and a bare type annotation
+    (``str``, ``str | None``, ``list[str]``, ...) never contains ``" = "`` on its own - so the
+    substring test is a safe, cheap proxy for "was this decl built with a default value".
+    """
+    no_default = [decl for decl in decls if " = " not in decl]
+    with_default = [decl for decl in decls if " = " in decl]
+    return no_default, with_default
+
+
+def _cli_write_parts(
+    res: ir.Resource, op: ir.Operation, ctx: EmitContext, naming: Naming, type_mapper: TypeMapper
+) -> tuple[str, str, list[Import]]:
+    """``(signature_tail, call_args, imports)`` for one write command.
+
+    ``signature_tail`` is the suffix rendered after ``ctx``: every decl WITHOUT a default (options,
+    path, query - in that source order), then every decl WITH a default, each group preserving its
+    relative order (``_partition_by_default``). Plain source-order concatenation can put a
+    required param (e.g. a path param) after a defaulted one (e.g. an optional body option),
+    which Python rejects with a ``SyntaxError``; partitioning both fixes that and gives sensible
+    typer semantics (required -> positional Arguments first, optional -> Options after).
+    ``call_args`` forwards path names (positional), the reassembled body expr, then ``name=name``
+    query kwargs - matching the client method's ``(path, body, *, query)`` order, independent of
+    how the command signature above is ordered. Imports are the body/ref model imports (remapped
+    from relative ``.models`` to the resource's absolute module) plus path/query scalar-type
+    imports.
+    """
+    option_decls, reassembly_expr, model_imports = _assembled_options(res, op, type_mapper, naming)
+    path_decls: list[str] = []
+    path_names: list[str] = []
+    query_decls: list[str] = []
+    query_kwargs: list[str] = []
+    param_imports: list[Import] = []
+    for param in op.params:
+        decl, decl_imports = param_decl(param, type_mapper, naming)
+        param_imports += decl_imports
+        safe = naming.safe_param(param.name)  # the guarded local identifier forwarded to the client
+        if param.loc == "path":
+            path_decls.append(decl)
+            path_names.append(safe)
+        else:  # query
+            query_decls.append(decl)
+            query_kwargs.append(f"{safe}={safe}")
+    all_decls = [*option_decls, *path_decls, *query_decls]
+    # `_assembled_options` dedups the body options internally, but a body option can still collide
+    # with a path/query param name - both land in the same command signature, and two same-named
+    # parameters are a duplicate-argument SyntaxError. Reject across all sources at the cause (a
+    # decl is `name: type[ = default]`, so the name is the token before the first colon).
+    _reject_duplicate_options(op, [decl.split(":", 1)[0].strip() for decl in all_decls])
+    no_default, with_default = _partition_by_default(all_decls)
+    signature_tail = "".join(f", {decl}" for decl in (*no_default, *with_default))
+    call_args = ", ".join((*path_names, reassembly_expr, *query_kwargs))
+    imports = _remap_to_resource_models(ctx, res, [*model_imports, *param_imports])
+    return signature_tail, call_args, imports
+
+
+def _cli_command(
+    res: ir.Resource,
+    op: ir.Operation,
+    ctx: EmitContext,
+    naming: Naming,
+    type_mapper: TypeMapper,
+    docstrings: Docstrings,
+) -> tuple[str, list[Import]]:
+    """The finished text (+ model imports) for one ``@app.command()`` leaf.
+
+    A READ op (no body) stays the param-less passthrough (byte-identical to the `me` emitter):
+    resolves ``AppContext`` and forwards ``app_ctx.<domain>.<resource>.<op>()`` through
+    ``Serializer.serialize``, pulling no imports. A WRITE op (``op.body``) carries the assembled
+    flat options (+ path/query params) in its signature, reassembles the typed body, and forwards
+    ``app_ctx.<d>.<r>.<op>(<path>, <body>, <query>)``. The command name is author-controlled via
+    ``op.cli.name`` (not necessarily ``op.name``).
     """
     meta = op.cli
     if meta is None:  # resolve_cli only calls this for cli-faceted ops - fail loud if that changes
         raise ValueError(f"{op.name}: operation has no cli facet")
-    call = f"app_ctx.{res.domain}.{res.resource}.{op.name}()"
+    if op.body is None:  # read: param-less passthrough (unchanged)
+        signature_tail, call_args, imports = "", "", []
+    else:  # write: flat options -> reassembled typed body
+        signature_tail, call_args, imports = _cli_write_parts(res, op, ctx, naming, type_mapper)
+    call = f"app_ctx.{res.domain}.{res.resource}.{op.name}({call_args})"
     lines = [
         "@app.command()",
-        f"def {meta.name}(ctx: typer.Context) -> None:",
+        f"def {meta.name}(ctx: typer.Context{signature_tail}) -> None:",
         *docstrings.render(meta.documentation, "    "),
         "    app_ctx = AppContext.from_typer_context(ctx)",
         f"    Serializer.serialize({call}, app_ctx.strategy, app_ctx.console)",
     ]
-    return "\n".join(lines)
+    return "\n".join(lines), imports
 
 
 def resolve_cli(
@@ -370,19 +492,150 @@ def resolve_cli(
         ]
     )
     blocks = [group_block]
+    command_imports: list[Import] = []
     for op in res.operations:
         if op.cli is not None:
-            blocks.append(_cli_command(res, op, docstrings))
+            text, cmd_imports = _cli_command(res, op, ctx, naming, type_mapper, docstrings)
+            blocks.append(text)
+            command_imports += cmd_imports
     return CliPageView(
         doc_block=docstrings.render(res.module_docs.cli, ""),
         header_lines=("from __future__ import annotations",),
         import_lines=(
             "import typer",
-            "from ycli.cli.context import AppContext",
-            "from ycli.cli.output import Serializer",
+            *render_imports(
+                (
+                    Import("ycli.cli.context", "AppContext"),
+                    Import("ycli.cli.output", "Serializer"),
+                    *command_imports,
+                )
+            ),
         ),
         blocks=tuple(blocks),
     )
+
+
+def _option_decl(
+    name: str, field: ir.Field, type_mapper: TypeMapper
+) -> tuple[str, tuple[Import, ...]]:
+    """One typer option decl ``name: Type`` (+ `` = default``) for a body ``Field``.
+
+    Mirrors ``param_decl`` (a typer option IS a parameter), but takes an explicit ``name`` so a
+    nested field can flatten to ``<parent>_<child>``. Default is the field's explicit spec default
+    or, absent that, ``type_mapper.null_default`` (implied-null).
+    """
+    rendered = type_mapper.render(field.type, optional=field.optional)
+    default = (
+        field.default
+        if field.default is not None
+        else type_mapper.null_default(field.type, optional=field.optional)
+    )
+    decl = f"{name}: {rendered.text}"
+    if default is not None:
+        decl = f"{decl} = {default}"
+    return decl, rendered.imports
+
+
+def _handler_hint(op: ir.Operation, field: ir.Field) -> str:
+    """The unsupported-body-shape message - single source so both reject arms match byte-for-byte.
+    Names the Q1 ``handler:`` escape as the planned mechanism, but states plainly that it is not yet
+    wired: no emitter reads ``op.handler`` today, so the message must not imply setting it works."""
+    return (
+        f"{op.name}: body field {field.name!r} needs a handler (not yet implemented) - "
+        "Assembled-CLI covers scalar + one-level ref only"
+    )
+
+
+def _require_object_model(op: ir.Operation, model: ir.Model) -> ObjectModel:
+    """Narrow a body/ref-target ``Model`` to ``ObjectModel`` - fail loud (not a bare ``assert``,
+    which ``python -O`` strips) when it names a ``RootListModel`` instead."""
+    if not isinstance(model, ObjectModel):
+        raise SpecError(
+            f"{op.name}: body model {model.name!r} is not an object - "
+            "needs a handler (not yet implemented)"
+        )
+    return model
+
+
+def _reject_duplicate_options(op: ir.Operation, option_names: list[str]) -> None:
+    """Fail loud on a repeated flat parameter name - a scalar field literally named
+    ``<reffield>_<child>`` colliding with a flattened nested option (within the body), OR a body
+    option colliding with a path/query param name (across sources). Two same-named parameters
+    would otherwise emit a duplicate-argument ``SyntaxError`` in the generated command, silently."""
+    seen: set[str] = set()
+    for name in option_names:
+        if name in seen:
+            raise SpecError(
+                f"{op.name}: CLI parameter name collision on {name!r} - "
+                "rename the colliding field or param"
+            )
+        seen.add(name)
+
+
+def _assembled_options(
+    res: ir.Resource, op: ir.Operation, type_mapper: TypeMapper, naming: Naming
+) -> tuple[list[str], str, list[Import]]:
+    """Flatten a write op's body model into flat typer options + a body-reassembly expression.
+
+    Walk ``res.model(op.body.model)`` (an ObjectModel) one level: a scalar field -> one option
+    ``name: Type`` reassembled ``name=name``; a one-level ``ref<Target>`` field fans Target's
+    scalar fields into ``<parent>_<child>`` options reassembled
+    ``parent=Target(child=<parent>_<child>, ...)``. Any shape past scalar + one-level-ref (map,
+    list, a ref nested two levels down) is the Q1 escape hatch - a ``SpecError`` naming the field
+    (the ``handler:`` escape is planned but not yet wired into any emitter).
+
+    Returns ``(option_decls, reassembly_expr, imports)``. For a PriorityCreate {key, name:
+    ref<LocalizedName>{ru?, en?}, order?, description?} body the expr is exactly
+    ``PriorityCreate(key=key, name=LocalizedName(ru=name_ru, en=name_en), order=order,
+    description=description)``.
+    """
+    body = op.body
+    if body is None:  # write-op only; a bodyless op reaching here is a wiring bug - fail loud
+        raise ValueError(f"{op.name}: assembled options require a write body")
+    model = _require_object_model(op, res.model(body.model))
+    # Shape-aligned with `_body_test_imports`: both walk the body model's one-level `ref<...>`
+    # fields (third consumer -> extract a shared walker). Imports open with the body model (the
+    # reassembly ctor); `.models` mirrors requests/client - the CLI wiring (D5b) supplies the
+    # final module.
+    option_decls: list[str] = []
+    option_names: list[str] = []
+    reassembly: list[str] = []
+    imports: list[Import] = [Import(".models", body.model)]
+    for field in model.fields:
+        match field.type:
+            case ScalarType():
+                option_name = naming.safe_param(field.name)  # guarded typer option identifier
+                decl, decl_imports = _option_decl(option_name, field, type_mapper)
+                option_decls.append(decl)
+                option_names.append(option_name)
+                imports += decl_imports
+                reassembly.append(f"{field.name}={option_name}")  # KWARG=field name; VALUE=guarded
+            case RefType(target=target):
+                nested = _require_object_model(op, res.model(target))
+                inner: list[str] = []
+                for child in nested.fields:
+                    match child.type:
+                        case ScalarType():
+                            option_name = naming.safe_param(
+                                naming.cli_option(field.name, child.name)
+                            )
+                            decl, decl_imports = _option_decl(option_name, child, type_mapper)
+                            option_decls.append(decl)
+                            option_names.append(option_name)
+                            imports += decl_imports
+                            inner.append(f"{child.name}={option_name}")
+                        case RefType() | ListType() | MapType():  # two-level nest -> escape hatch
+                            raise SpecError(_handler_hint(op, field))
+                        case _:  # closed union (ir/types.py) - unreachable, not a real arm
+                            assert_never(child.type)
+                imports.append(Import(".models", target))
+                reassembly.append(f"{field.name}={target}({', '.join(inner)})")
+            case ListType() | MapType():  # not flattenable to scalar leaves
+                raise SpecError(_handler_hint(op, field))
+            case _:  # closed union (ir/types.py) - unreachable, not a real arm
+                assert_never(field.type)
+    _reject_duplicate_options(op, option_names)
+    return option_decls, f"{body.model}({', '.join(reassembly)})", imports
 
 
 def _tags_symbol(safety: Safety) -> str:
@@ -397,7 +650,7 @@ def _mcp_signature(
 
     Path/query go through ``param_decl`` (TypeMapper). Parameters stay flat (not keyword-only):
     fastmcp reads them as ordinary arguments."""
-    positional, keyword_only, _call_args, imports = signature_and_call(op, type_mapper)
+    positional, keyword_only, _call_args, imports = signature_and_call(op, type_mapper, naming)
     parameters = [
         *positional,
         *keyword_only,
@@ -406,9 +659,9 @@ def _mcp_signature(
     return parameters, list(imports)
 
 
-def _mcp_call_args(op: ir.Operation, type_mapper: TypeMapper) -> str:
+def _mcp_call_args(op: ir.Operation, type_mapper: TypeMapper, naming: Naming) -> str:
     """Arguments forwarded to the client call: path, ``body``, then keyword query."""
-    _positional, _keyword_only, call_args, _imports = signature_and_call(op, type_mapper)
+    _positional, _keyword_only, call_args, _imports = signature_and_call(op, type_mapper, naming)
     return ", ".join(call_args)
 
 
@@ -435,9 +688,10 @@ def _mcp_tool(
     )
     parameters, imports = _mcp_signature(res, op, naming, type_mapper)
     signature = (
-        f"def {naming.module_function(op.name)}({', '.join(parameters)}) -> {op.response_model}:"
+        f"def {naming.module_function(op.name)}({', '.join(parameters)}) "
+        f"-> {op.response_model or 'None'}:"
     )
-    call = f"client.{res.resource}.{op.name}({_mcp_call_args(op, type_mapper)})"
+    call = f"client.{res.resource}.{op.name}({_mcp_call_args(op, type_mapper, naming)})"
     guard = meta.require_found
     if guard is None:
         body = [f"    return {call}"]
@@ -502,8 +756,11 @@ _EMPTY_GUARD_DOC = (
 )
 
 
-def _tests_module_doc(res: ir.Resource, op: ir.Operation, kinds: set[TestKind]) -> str:
-    """Text of the test-module docstring: ``<Domain> /<path> resource - <surfaces>, stubbed.``"""
+def _tests_module_doc(res: ir.Resource, ops: tuple[ir.Operation, ...], kinds: set[TestKind]) -> str:
+    """Text of the test-module docstring: ``<Domain> /<path[+path...]> resource - <surfaces>,
+    HTTP stubbed.`` Path segments are the UNIQUE ``op.path`` values across all tests-bearing ops,
+    joined with `` + `` - byte-identical to the prior single-op form when only one op qualifies.
+    """
     labels = []
     if TestKind.CLIENT in kinds:
         labels.append("client")
@@ -512,11 +769,34 @@ def _tests_module_doc(res: ir.Resource, op: ir.Operation, kinds: set[TestKind]) 
     if kinds & {TestKind.MCP, TestKind.MCP_GUARD}:
         labels.append("MCP")
     surfaces = " + ".join(labels)
-    return f"{res.domain_title} /{op.path} resource - {surfaces}, HTTP stubbed."
+    paths = " + ".join(dict.fromkeys(op.path for op in ops))
+    return f"{res.domain_title} /{paths} resource - {surfaces}, HTTP stubbed."
+
+
+def _body_test_imports(res: ir.Resource, body: ir.Body, models_module: str) -> tuple[Import, ...]:
+    """The body model's import, plus any of its directly-nested ``ref<...>`` fields.
+
+    A CLIENT-kind test's authored ``call`` constructs the body model literally in Python (e.g.
+    ``PriorityCreate(name=LocalizedName(...))``), so a nested ref field needs its own import too -
+    one level deep only (no write body in this codebase nests a ref two levels down yet).
+    """
+    model = res.model(body.model)
+    imports = [Import(models_module, body.model)]
+    if isinstance(model, ObjectModel):
+        imports += [
+            Import(models_module, field.type.target)
+            for field in model.fields
+            if isinstance(field.type, RefType)
+        ]
+    return tuple(imports)
 
 
 def _tests_imports(
-    res: ir.Resource, op: ir.Operation, ctx: EmitContext, kinds: set[TestKind], client_class: str
+    res: ir.Resource,
+    ops: tuple[ir.Operation, ...],
+    ctx: EmitContext,
+    kinds: set[TestKind],
+    client_class: str,
 ) -> tuple[str, ...]:
     has_client = TestKind.CLIENT in kinds
     has_cli = TestKind.CLI in kinds
@@ -551,37 +831,57 @@ def _tests_imports(
         first_party.append(
             f"from {ctx.package_root}.{res.resource} import mcp as {res.resource}_mcp_module"
         )
-    if has_client:
-        first_party.append(
-            f"from {ctx.package_root}.{res.resource}.models import {op.response_model}"
-        )
+    models_module = f"{ctx.package_root}.{res.resource}.models"
+    model_imports: list[Import] = []
+    for op in ops:
+        has_client_case = any(case.kind is TestKind.CLIENT for case in op.tests)
+        if has_client_case and op.response_model:
+            model_imports.append(Import(models_module, op.response_model))
+        if has_client_case and op.body is not None:
+            model_imports.extend(_body_test_imports(res, op.body, models_module))
+    first_party.extend(render_imports(tuple(model_imports)))
     return (*stdlib, *third_party, *first_party)
 
 
 def _tests_constants(
     res: ir.Resource, op: ir.Operation, ctx: EmitContext, kinds: set[TestKind]
 ) -> tuple[str, ...]:
-    """Module constants: ``_URL`` (always), ``_PAYLOAD`` (client case), ``_runner`` (cli case).
+    """Module constants: ``_URL_<op.name>`` (always), ``_PAYLOAD_<op.name>`` (client case),
+    ``_runner`` (cli case, shared - not op-suffixed; harmlessly re-assigned to the same value if
+    more than one op has CLI tests).
 
-    ``_URL`` is built from ``ctx.config.server.base_url`` (``base_url`` left ``Resource`` for
+    ``_URL_<op.name>`` / ``_PAYLOAD_<op.name>`` are ALWAYS per-op suffixed - one rule, applied
+    even when a single op has tests - so two tests-bearing ops never collide on the same
+    constant name. Built from ``ctx.config.server.base_url`` (``base_url`` left ``Resource`` for
     ``ClientConfig``). ``response_json`` is authored data; ``!r`` produces a single-quote repr,
     which ruff normalizes to double-quote. No type lowering is needed."""
     if ctx.config is None:
         raise ValueError("tests surface requires ClientConfig (base_url)")
-    lines = [f'_URL = "{ctx.config.server.base_url}/{op.path}"']
-    if TestKind.CLIENT in kinds:
-        client_case = next(case for case in op.tests if case.kind is TestKind.CLIENT)
-        lines.append(f"_PAYLOAD = {client_case.response_json!r}")
+    lines = [f'_URL_{op.name} = "{ctx.config.server.base_url}/{op.path}"']
+    # `_stub` references `_PAYLOAD_<op>` for EVERY non-guard case (client/cli/mcp) - only the
+    # MCP_GUARD case inlines its own `{}`. So the payload constant must exist whenever any
+    # non-guard case does, not merely when a CLIENT case does: a cli-only or mcp-only tested op
+    # would otherwise reference an undefined name. Prefer the CLIENT case's fixture when present
+    # (keeps the shared per-op payload deterministic and byte-identical on the current corpus),
+    # else fall back to the first non-guard case.
+    non_guard = [case for case in op.tests if case.kind is not TestKind.MCP_GUARD]
+    client = [case for case in non_guard if case.kind is TestKind.CLIENT]
+    payload_case = client[0] if client else non_guard[0] if non_guard else None
+    if payload_case is not None:
+        lines.append(f"_PAYLOAD_{op.name} = {payload_case.response_json!r}")
     if TestKind.CLI in kinds:
         lines.append("_runner = CliRunner()")
     return tuple(lines)
 
 
-def _stub(case: ir.TestCase) -> str:
-    """The ``responses.add(...)`` line (``_PAYLOAD`` for reads, inline ``{}`` for guard cases)."""
-    json_arg = repr(case.response_json) if case.kind is TestKind.MCP_GUARD else "_PAYLOAD"
+def _stub(op: ir.Operation, case: ir.TestCase) -> str:
+    """The ``responses.add(...)`` line (``_PAYLOAD_<op.name>`` for reads, inline ``{}`` for guard
+    cases), stubbing the per-op ``_URL_<op.name>`` constant."""
+    json_arg = (
+        repr(case.response_json) if case.kind is TestKind.MCP_GUARD else f"_PAYLOAD_{op.name}"
+    )
     return (
-        f"    responses.add(responses.{case.http_method}, _URL, "
+        f"    responses.add(responses.{case.http_method}, _URL_{op.name}, "
         f"json={json_arg}, status={case.status})"
     )
 
@@ -591,12 +891,12 @@ def _asserts(case: ir.TestCase) -> list[str]:
     return [f"    assert {expr}" for expr in case.asserts]
 
 
-def _client_test(res: ir.Resource, case: ir.TestCase) -> str:
+def _client_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
     """Client case - chain the client call, then the authored asserts."""
     lines = [
         "@responses.activate",
         f"def test_{case.name}(creds):",
-        _stub(case),
+        _stub(op, case),
         f"    {res.resource} = {case.call}",
         *_asserts(case),
     ]
@@ -613,7 +913,7 @@ def _cli_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
     lines = [
         "@responses.activate",
         f"def test_{case.name}(creds):",
-        _stub(case),
+        _stub(op, case),
         f"    res = _runner.invoke(cli.app, [{argv}])",
         *_asserts(case),
     ]
@@ -628,7 +928,7 @@ def _mcp_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
     lines = [
         "@responses.activate",
         f"def test_{case.name}(creds):",
-        _stub(case),
+        _stub(op, case),
         "",
         "    async def go():",
         "        async with Client(root_mcp) as client:",
@@ -648,7 +948,7 @@ def _guard_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
     if case.status == 200:
         lines.append(f'    """{_EMPTY_GUARD_DOC}"""')
     lines += [
-        _stub(case),
+        _stub(op, case),
         f"    async with Client({res.resource}_mcp_module.mcp) as client:",
         "        with pytest.raises(ToolError):",
         f'            await client.call_tool("{op.mcp.name}", {{}})',
@@ -660,7 +960,7 @@ def _test_block(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
     """Dispatch one authored ``TestCase`` to its per-kind renderer (identity on ``TestKind``)."""
     match case.kind:
         case TestKind.CLIENT:
-            return _client_test(res, case)
+            return _client_test(res, op, case)
         case TestKind.CLI:
             return _cli_test(res, op, case)
         case TestKind.MCP:
@@ -678,18 +978,26 @@ def resolve_tests(
     type_mapper: TypeMapper,
     docstrings: Docstrings,
 ) -> TestsPageView:
-    """IR -> TestsPageView. Takes the single operation carrying tests (walking-skeleton `me`),
-    gates imports/constants on its ``kinds`` (a set of ``TestKind``), and renders one leaf per
-    case. ``type_mapper`` is unused here - all TestCase values are authored."""
-    op = next(operation for operation in res.operations if operation.tests)
-    kinds = {case.kind for case in op.tests}
+    """IR -> TestsPageView. Iterates ALL tests-bearing operations (not just the first), unions
+    their ``kinds`` (a set of ``TestKind``) to gate imports/module-doc, and renders one leaf per
+    case across every such op. Constants are collected per op - ``_tests_constants`` always
+    suffixes ``_URL``/``_PAYLOAD`` with ``op.name``, so only the shared, non-suffixed
+    ``_runner = CliRunner()`` line could ever repeat (harmless: re-assigning the same value).
+    ``type_mapper`` is unused here - all TestCase values are authored."""
+    tested = tuple(operation for operation in res.operations if operation.tests)
+    kinds = {case.kind for op in tested for case in op.tests}
     client_class = naming.class_name(res.domain, "Client")
+    constants: list[str] = []
+    tests: list[str] = []
+    for op in tested:
+        constants.extend(_tests_constants(res, op, ctx, {case.kind for case in op.tests}))
+        tests.extend(_test_block(res, op, case) for case in op.tests)
     return TestsPageView(
-        doc_block=docstrings.render(_tests_module_doc(res, op, kinds), ""),
+        doc_block=docstrings.render(_tests_module_doc(res, tested, kinds), ""),
         header_lines=("from __future__ import annotations",),
-        import_lines=_tests_imports(res, op, ctx, kinds, client_class),
-        constants=_tests_constants(res, op, ctx, kinds),
-        tests=tuple(_test_block(res, op, case) for case in op.tests),
+        import_lines=_tests_imports(res, tested, ctx, kinds, client_class),
+        constants=tuple(constants),
+        tests=tuple(tests),
     )
 
 

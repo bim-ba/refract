@@ -24,12 +24,15 @@ def test_render_resource_gates_surfaces(me_resource, priorities_resource):
         "tests/tracker/test_me.py",
     }
     prio_files = set(g.render_resource(priorities_resource, config))
-    assert prio_files == {  # no cli, no tests facets -> gated out; _requests added by D
+    assert prio_files == {  # create/edit now carry a cli facet -> cli.py included; tests facet
+        # present (D1: multi-op client-kind fixtures on list + create) -> tests file included
         "tracker/priorities/__init__.py",
         "tracker/priorities/models.py",
         "tracker/priorities/_requests.py",
         "tracker/priorities/client.py",
+        "tracker/priorities/cli.py",
         "tracker/priorities/mcp.py",
+        "tests/tracker/test_priorities.py",
     }
 
 

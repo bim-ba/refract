@@ -4,7 +4,9 @@ security: oauth_token
 module_docs:
   models: "Pydantic models for Tracker priorities (Priority + PriorityList + typed write bodies)."
   client: "Declarative Tracker priorities client - transport ONLY (thin sugar over request builders)."
+  cli: "`tracker priorities` commands."
   mcp: "Tracker priorities FastMCP tools (reads + writes, ARCH-3 honest annotations)."
+  cli_group_help: "Tracker issue priorities."
   mcp_server: "tracker-priorities"
   client_class: "Declarative HTTP for ``/priorities`` (list + create + edit)."
 documentation: "Tracker /priorities resource package."
@@ -87,6 +89,14 @@ operations:
       safety: RO
       title: "List Tracker priorities"
       documentation: "All available issue priorities in the organisation."
+    tests:
+      # Client-kind fixture proving multi-op tests (D1 L1 snapshot) alongside `create` below -
+      # priorities has only one read op, so exercising two ops necessarily pairs a read with a
+      # write.
+      - {name: priorities_client_list, kind: client, http_method: GET, path: priorities, status: 200,
+         response_json: [{key: normal, name: Normal}, {key: critical, name: Critical}],
+         call: "TrackerClient(oauth_token=\"t\", organization_id=\"o\").priorities.list()",
+         asserts: ["isinstance(priorities, PriorityList)", "priorities.root[0].key == \"normal\""]}
   - name: create
     method: POST
     path: priorities/
@@ -112,6 +122,16 @@ operations:
 
         CAUTION: priorities are organisation-wide and have no delete endpoint — creation leaves
         permanent residue. ``key`` is the latin identifier; ``name`` holds the ru/en display names.
+    cli:
+      name: create
+      documentation: "Create a priority from a key, localized name, and optional order/description."
+    tests:
+      # Client-kind write case - the body model (PriorityCreate) AND its nested ref field
+      # (LocalizedName) both appear literally in `call`, exercising the STEP-A import fix.
+      - {name: priorities_client_create, kind: client, http_method: POST, path: priorities/, status: 200,
+         response_json: {key: one, name: Nizkiy},
+         call: "TrackerClient(oauth_token=\"t\", organization_id=\"o\").priorities.create(PriorityCreate(key=\"one\", name=LocalizedName(ru=\"Nizkiy\")))",
+         asserts: ["isinstance(priorities, Priority)", "priorities.key == \"one\"", "priorities.name == \"Nizkiy\""]}
   - name: edit
     method: PATCH
     path: priorities/{priority_id}
@@ -143,3 +163,6 @@ operations:
 
         ``priority_id`` is the numeric id (not the key). Pass ``version`` to guard against
         concurrent edits (optimistic locking).
+    cli:
+      name: edit
+      documentation: "Edit a priority's name and/or description; pass version for optimistic locking."

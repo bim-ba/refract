@@ -46,7 +46,7 @@ class ModelSpec(_Spec):
 
 
 class ResponseSpec(_Spec):
-    model: str
+    model: str | None = None  # None => bodyless success (204/201-no-content)
 
 
 class RequireFoundSpec(_Spec):
