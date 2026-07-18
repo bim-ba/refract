@@ -118,6 +118,13 @@ def write_op_resource() -> ir.Resource:
                 name="WidgetCreate",
                 fields=(ir.Field(name="name", type=ir.RefType(target="WidgetName")),),
             ),
+            # a declared target: `_referenced_model_names` resolves every RefType via
+            # `res.model(...)` (fail-loud on a dangling ref), so the nested ref's target must be
+            # a real model, not merely assumed from the fixture's literal `call` string.
+            ir.ObjectModel(
+                name="WidgetName",
+                fields=(ir.Field(name="en", type=ir.ScalarType(scalar="string")),),
+            ),
         ),
         operations=(_write_op_with_nested_body(),),
     )

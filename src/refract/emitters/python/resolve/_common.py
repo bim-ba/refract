@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
+
+from refract.ir import ListType, MapType, ObjectModel, RefType, ScalarType
+from refract.ir.types import LiteralType, UnionType
 
 if TYPE_CHECKING:
     from refract import ir
@@ -100,3 +103,74 @@ def _shared_models_module(ctx: EmitContext) -> str:
 
     ``ycli.yandex.tracker`` -> ``ycli.yandex.models`` (derived, not hardcoded)."""
     return f"{ctx.package_root.rsplit('.', 1)[0]}.models"
+
+
+def _referenced_model_names(model: ObjectModel, res: ir.Resource) -> tuple[str, ...]:
+    """Every model name transitively reachable from `model`'s fields via RefType - unwraps
+    ListType/MapType/UnionType at any depth, recurses into each referenced ObjectModel's own
+    fields. De-duplicated, first-seen order.
+
+    Fixes the M1 bug: a body model's `list<ref<Item>>` (or `oneof<A|B>`) field is now imported for
+    a generated test's authored `call` (e.g. ``Widget(items=[Item(...)])``) - previously only a
+    DIRECT `ref<...>` field was ever seen (``_body_test_imports`` walked one level by hand).
+
+    A `seen` set of already-discovered names guards a structural cycle (an ``A -> B -> A`` ref
+    loop) from infinite recursion - the START model's own name is never seeded into `seen`, so a
+    cyclic self-reference is still listed once, the first time it comes back around. For a
+    ``Widget{items: list<ref<Item>>}`` where ``Item{v: ref<Leaf>}`` and ``Leaf`` is bare:
+    ``_referenced_model_names(widget, res) == ("Item", "Leaf")``.
+    """
+    names, _seen = _walk_model(model, res, frozenset())
+    return names
+
+
+def _walk_model(
+    model: ObjectModel, res: ir.Resource, seen: frozenset[str]
+) -> tuple[tuple[str, ...], frozenset[str]]:
+    """Fold every field's reachable names left-to-right, threading `seen` so a later field (or a
+    later recursion frame) never re-lists a name an earlier one already found."""
+    names: tuple[str, ...] = ()
+    for field in model.fields:
+        found, seen = _walk_type(field.type, res, seen)
+        names += found
+    return names, seen
+
+
+def _walk_type(
+    neutral: ir.NeutralType, res: ir.Resource, seen: frozenset[str]
+) -> tuple[tuple[str, ...], frozenset[str]]:
+    """One NeutralType node -> the model names it reaches (+ the updated `seen`).
+
+    ScalarType/LiteralType are terminal (carry no ref). List/Map/Union unwrap into their nested
+    type(s) at any depth. A RefType resolves via ``res.model`` (shared-aware post-Task-9) and, for
+    an ObjectModel target, recurses into ITS fields; a RootListModel target carries no `.fields` to
+    recurse into, so its name is listed but not expanded. A dangling ref (an undeclared target)
+    raises `KeyError` straight out of ``res.model`` - fail-loud, never swallowed.
+    """
+    match neutral:
+        case RefType(target=target):
+            if target in seen:  # cycle guard - already discovered up this walk
+                return (), seen
+            seen = seen | {target}
+            resolved = res.model(target)
+            if isinstance(resolved, ObjectModel):
+                nested, seen = _walk_model(resolved, res, seen)
+            else:
+                nested = ()
+            return (target, *nested), seen
+        case ListType(item=item):
+            return _walk_type(item, res, seen)
+        case MapType(key=key, value=value):
+            key_names, seen = _walk_type(key, res, seen)
+            value_names, seen = _walk_type(value, res, seen)
+            return (*key_names, *value_names), seen
+        case UnionType(variants=variants):
+            names: tuple[str, ...] = ()
+            for variant in variants:
+                found, seen = _walk_type(variant, res, seen)
+                names += found
+            return names, seen
+        case ScalarType() | LiteralType():
+            return (), seen
+        case _:
+            assert_never(neutral)

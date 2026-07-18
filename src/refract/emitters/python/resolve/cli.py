@@ -3,7 +3,12 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, assert_never
 
 from refract.emitters.api import Import
-from refract.emitters.python.resolve._common import param_decl, py_str, render_imports
+from refract.emitters.python.resolve._common import (
+    _referenced_model_names,
+    param_decl,
+    py_str,
+    render_imports,
+)
 from refract.emitters.python.views import CliPageView
 from refract.ir import ListType, MapType, ObjectModel, RefType, ScalarType
 from refract.ir.types import LiteralType, UnionType
@@ -240,19 +245,27 @@ def _assembled_options(
     ref<LocalizedName>{ru?, en?}, order?, description?} body the expr is exactly
     ``PriorityCreate(key=key, name=LocalizedName(ru=name_ru, en=name_en), order=order,
     description=description)``.
+
+    Import ASSEMBLY shares `_referenced_model_names` with `_body_test_imports` (both walk the
+    body model's ref-reachable names); the flatten-or-reject DECISION below is unaffected - it
+    still walks one level by hand and still raises the Q1 escape hatch for anything past
+    scalar + one-level ref (a list/map/deeper-ref/union body field never reaches this import list
+    without first raising below).
     """
     body = op.body
     if body is None:  # write-op only; a bodyless op reaching here is a wiring bug - fail loud
         raise ValueError(f"{op.name}: assembled options require a write body")
     model = _require_object_model(op, res.model(body.model))
-    # Shape-aligned with `_body_test_imports`: both walk the body model's one-level `ref<...>`
-    # fields (third consumer -> extract a shared walker). Imports open with the body model (the
-    # reassembly ctor); `.models` mirrors requests/client - the CLI wiring (D5b) supplies the
-    # final module.
+    # Imports open with the body model (the reassembly ctor) + every transitively ref-reachable
+    # model name; `.models` mirrors requests/client - the CLI wiring (D5b) supplies the final
+    # module (`_remap_to_resource_models`).
     option_decls: list[str] = []
     option_names: list[str] = []
     reassembly: list[str] = []
-    imports: list[Import] = [Import(".models", body.model)]
+    imports: list[Import] = [
+        Import(".models", body.model),
+        *(Import(".models", name) for name in _referenced_model_names(model, res)),
+    ]
     for field in model.fields:
         match field.type:
             case ScalarType():
@@ -282,7 +295,7 @@ def _assembled_options(
                             raise SpecError(_handler_hint(op, field))
                         case _:  # closed union (ir/types.py) - unreachable, not a real arm
                             assert_never(child.type)
-                imports.append(Import(".models", target))
+                # `target`'s import is already in `imports` (the walker collected it up front).
                 reassembly.append(f"{field.name}={target}({', '.join(inner)})")
             case ListType() | MapType() | UnionType() | LiteralType():  # not flattenable to scalars
                 raise SpecError(_handler_hint(op, field))

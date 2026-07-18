@@ -301,6 +301,101 @@ def test_body_test_imports_skips_nested_ref_scan_for_non_object_model():
     assert imports == (Import(models_module, "Tags"),)
 
 
+# --- Task 11 (M1): `_referenced_model_names` recursive ref-walker ---
+
+
+def test_referenced_names_unwraps_list_of_ref():
+    from refract.ir.types import ListType, RefType
+
+    item = ir.ObjectModel(name="Item", fields=(ir.Field(name="v", type=RefType(target="Leaf")),))
+    leaf = ir.ObjectModel(name="Leaf")
+    widget = ir.ObjectModel(
+        name="Widget",
+        fields=(ir.Field(name="items", type=ListType(item=RefType(target="Item"))),),
+    )
+    res = ir.Resource(
+        domain="d", resource="r", security="t", models=(widget, item, leaf), operations=()
+    )
+    assert resolve._referenced_model_names(widget, res) == ("Item", "Leaf")  # recurses INTO Item
+
+
+def test_referenced_names_guards_a_cycle():
+    """An A -> B -> A structural cycle resolves without infinite recursion, each named once."""
+    from refract.ir.types import RefType
+
+    a = ir.ObjectModel(name="A", fields=(ir.Field(name="b", type=RefType(target="B")),))
+    b = ir.ObjectModel(name="B", fields=(ir.Field(name="a", type=RefType(target="A")),))
+    res = ir.Resource(domain="d", resource="r", security="t", models=(a, b), operations=())
+    assert resolve._referenced_model_names(a, res) == ("B", "A")  # each once; `seen` stops the loop
+
+
+def test_referenced_names_unwraps_map_key_and_value():
+    """A map's KEY and VALUE are both walked for refs (the MapType arm)."""
+    from refract.ir.types import MapType, RefType
+
+    k = ir.ObjectModel(name="K")
+    v = ir.ObjectModel(name="V")
+    widget = ir.ObjectModel(
+        name="Widget",
+        fields=(
+            ir.Field(
+                name="table", type=MapType(key=RefType(target="K"), value=RefType(target="V"))
+            ),
+        ),
+    )
+    res = ir.Resource(domain="d", resource="r", security="t", models=(widget, k, v), operations=())
+    assert resolve._referenced_model_names(widget, res) == ("K", "V")
+
+
+def test_referenced_names_unwraps_union_variants():
+    """A `oneof<A|B>` field unwraps EVERY variant (the UnionType arm), not just the first."""
+    from refract.ir.types import RefType, UnionType
+
+    a = ir.ObjectModel(name="A")
+    b = ir.ObjectModel(name="B")
+    widget = ir.ObjectModel(
+        name="Widget",
+        fields=(
+            ir.Field(
+                name="choice",
+                type=UnionType(variants=(RefType(target="A"), RefType(target="B"))),
+            ),
+        ),
+    )
+    res = ir.Resource(domain="d", resource="r", security="t", models=(widget, a, b), operations=())
+    assert resolve._referenced_model_names(widget, res) == ("A", "B")
+
+
+def test_referenced_names_stops_at_non_object_ref_target():
+    """A ref target that resolves to a ``RootListModel`` (no ``.fields``) is listed but not
+    expanded further."""
+    from refract.ir.types import RefType
+
+    tags = ir.RootListModel(name="Tags", item="str")
+    widget = ir.ObjectModel(
+        name="Widget", fields=(ir.Field(name="tags", type=RefType(target="Tags")),)
+    )
+    res = ir.Resource(domain="d", resource="r", security="t", models=(widget, tags), operations=())
+    assert resolve._referenced_model_names(widget, res) == ("Tags",)
+
+
+def test_body_test_imports_includes_nested_list_ref():
+    """A body model with a `list<ref<Item>>` field -> `_body_test_imports` now includes Item
+    (today only a DIRECT `ref<...>` field is imported)."""
+    from refract.ir.types import ListType, RefType
+
+    item = ir.ObjectModel(name="Item")
+    widget = ir.ObjectModel(
+        name="Widget",
+        fields=(ir.Field(name="items", type=ListType(item=RefType(target="Item"))),),
+    )
+    res = ir.Resource(domain="d", resource="r", security="t", models=(widget, item), operations=())
+    module = "ycli.yandex.d.r.models"
+    imports = resolve._body_test_imports(res, ir.Body(model="Widget"), module)
+    assert Import(module, "Item") in imports
+    assert Import(module, "Widget") in imports
+
+
 def test_resolve_tests_cli_only_op_drops_client_surface():
     """An op whose only test case is CLI-kind (no CLIENT case): the module doc drops the
     "client" surface label and the import block skips the client-class + response-model imports.

@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, assert_never
 
 from refract.emitters.api import Import
-from refract.emitters.python.resolve._common import render_imports
+from refract.emitters.python.resolve._common import _referenced_model_names, render_imports
 from refract.emitters.python.views import TestsPageView
-from refract.ir import ObjectModel, RefType, TestKind
+from refract.ir import ObjectModel, TestKind
 
 if TYPE_CHECKING:
     from refract import ir
@@ -36,20 +36,19 @@ def _tests_module_doc(res: ir.Resource, ops: tuple[ir.Operation, ...], kinds: se
 
 
 def _body_test_imports(res: ir.Resource, body: ir.Body, models_module: str) -> tuple[Import, ...]:
-    """The body model's import, plus any of its directly-nested ``ref<...>`` fields.
+    """The body model's import, plus every model TRANSITIVELY reachable from its fields via
+    RefType - unwrapping ListType/MapType/UnionType at any depth (``_referenced_model_names``),
+    not just a directly-nested ``ref<...>`` field.
 
     A CLIENT-kind test's authored ``call`` constructs the body model literally in Python (e.g.
-    ``PriorityCreate(name=LocalizedName(...))``), so a nested ref field needs its own import too -
-    one level deep only (no write body in this codebase nests a ref two levels down yet).
+    ``PriorityCreate(name=LocalizedName(...))`` or, for a `list<ref<Item>>` field,
+    ``Widget(items=[Item(...)])``), so every model named in that construction needs its own
+    import - at any nesting depth, not one level only.
     """
     model = res.model(body.model)
     imports = [Import(models_module, body.model)]
     if isinstance(model, ObjectModel):
-        imports += [
-            Import(models_module, field.type.target)
-            for field in model.fields
-            if isinstance(field.type, RefType)
-        ]
+        imports += [Import(models_module, name) for name in _referenced_model_names(model, res)]
     return tuple(imports)
 
 

@@ -1,4 +1,5 @@
 from refract.emitters.python.resolve._common import (
+    _referenced_model_names,
     indent_lines,
     param_decl,
     py_str,
@@ -38,6 +39,7 @@ __all__ = [
     "_mcp_test",
     "_mcp_tool",
     "_model_field",
+    "_referenced_model_names",
     "_request_function",
     "_select_scheme",
     "indent_lines",
