@@ -11,7 +11,15 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-__all__ = ["ListType", "MapType", "NeutralType", "RefType", "ScalarType", "UnionType"]
+__all__ = [
+    "ListType",
+    "LiteralType",
+    "MapType",
+    "NeutralType",
+    "RefType",
+    "ScalarType",
+    "UnionType",
+]
 
 Scalar = Literal["string", "integer", "number", "boolean", "any"]
 
@@ -53,8 +61,17 @@ class UnionType(_Node):
         return self
 
 
+class LiteralType(_Node):
+    """A single-value ``Literal[<value>]`` - the loader synthesizes this onto a discriminated-
+    union variant's tag field (default B: nobody hand-writes the tag). No recursive field, so
+    unlike its siblings above it needs no ``model_rebuild()``."""
+
+    kind: Literal["literal"] = "literal"
+    value: str
+
+
 NeutralType = Annotated[
-    ScalarType | RefType | ListType | MapType | UnionType,
+    ScalarType | RefType | ListType | MapType | UnionType | LiteralType,
     Field(discriminator="kind"),
 ]
 

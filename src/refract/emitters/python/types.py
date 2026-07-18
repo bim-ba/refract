@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import json
 from itertools import chain
 from typing import assert_never
 
 from refract.emitters.api import Import, RenderedType, TypeMapper
-from refract.ir.types import ListType, MapType, NeutralType, RefType, ScalarType, UnionType
+from refract.ir.types import (
+    ListType,
+    LiteralType,
+    MapType,
+    NeutralType,
+    RefType,
+    ScalarType,
+    UnionType,
+)
 
 _SCALAR = {"string": "str", "integer": "int", "number": "float", "boolean": "bool"}
 
@@ -38,6 +47,13 @@ class PythonTypeMapper(TypeMapper):
                 kr, vr = self._base(key), self._base(value)
                 return RenderedType(
                     text=f"dict[{kr.text}, {vr.text}]", imports=kr.imports + vr.imports
+                )
+            # json.dumps (not a hand-quoted f-string) matches the `py_str` convention elsewhere in
+            # the backend: double-quoted, proper escaping, non-ASCII stays literal.
+            case LiteralType(value=value):
+                return RenderedType(
+                    text=f"Literal[{json.dumps(value, ensure_ascii=False)}]",
+                    imports=(Import("typing", "Literal"),),
                 )
             # Unguarded on `discriminator` so this ONE arm covers the WHOLE UnionType (keeps the
             # `match` exhaustive for ty, no shadowed/unreachable second arm). Both discriminated and

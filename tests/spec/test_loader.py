@@ -4,9 +4,9 @@ import pytest
 
 from refract import ir
 from refract.ir.model import ObjectModel, RootListModel
-from refract.ir.types import RefType, ScalarType, UnionType
+from refract.ir.types import LiteralType, RefType, ScalarType, UnionType
 from refract.spec import nodes
-from refract.spec.loader import SpecError, SpecLoader, _field, _param, _response_model
+from refract.spec.loader import SpecError, SpecLoader, _field, _param, _resource, _response_model
 
 _EX = Path(__file__).resolve().parent.parent.parent / "examples" / "ycli-tracker"
 
@@ -274,3 +274,122 @@ models:
     )
     with pytest.raises(SpecError, match="root_list requires 'item'"):
         SpecLoader.load(resource_yaml)
+
+
+def _minimal_op() -> nodes.OperationSpec:
+    """A minimal spec op so a `ResourceSpec` validates (ResourceSpec.operations is required)."""
+    return nodes.OperationSpec(
+        name="list",
+        method="GET",
+        path="blocks",
+        operationId="blocks_list",
+        responses={200: nodes.ResponseSpec(model="Block")},
+        mcp=nodes.McpSpec(
+            name="blocks_list", safety="RO", title="List", documentation="List blocks."
+        ),
+    )
+
+
+def _paragraph() -> nodes.ModelSpec:
+    return nodes.ModelSpec(
+        name="Paragraph", fields=[nodes.FieldSpec(name="text", type="string", optional=True)]
+    )
+
+
+def _heading() -> nodes.ModelSpec:
+    return nodes.ModelSpec(
+        name="Heading1Block", fields=[nodes.FieldSpec(name="text", type="string", optional=True)]
+    )
+
+
+def _block_with(variants: dict[str, str]) -> nodes.ModelSpec:
+    return nodes.ModelSpec(
+        name="Block",
+        fields=[
+            nodes.FieldSpec(
+                name="block", oneof=nodes.OneOfSpec(discriminator="type", variants=variants)
+            )
+        ],
+    )
+
+
+def test_synthesizes_literal_tag_field_on_each_variant():
+    spec = nodes.ResourceSpec(
+        domain="notion",
+        resource="blocks",
+        security="tok",
+        models=[
+            _paragraph(),
+            _heading(),
+            _block_with({"paragraph": "ref<Paragraph>", "heading_1": "ref<Heading1Block>"}),
+        ],
+        operations=[_minimal_op()],
+    )
+    res = _resource(spec)
+    paragraph = res.model("Paragraph")
+    heading = res.model("Heading1Block")
+    assert isinstance(paragraph, ObjectModel)  # narrow the model union before field access
+    assert isinstance(heading, ObjectModel)
+    assert paragraph.fields[0].name == "type"
+    assert paragraph.fields[0].type == LiteralType(value="paragraph")
+    assert heading.fields[0].type == LiteralType(value="heading_1")
+
+
+def test_variant_authoring_its_own_tag_field_raises():
+    """A variant that hand-writes a field named `type` collides with the synthesized tag."""
+    paragraph = nodes.ModelSpec(
+        name="Paragraph",
+        fields=[
+            # collides with the synthesized discriminator
+            nodes.FieldSpec(name="type", type="string"),
+            nodes.FieldSpec(name="text", type="string", optional=True),
+        ],
+    )
+    spec = nodes.ResourceSpec(
+        domain="notion",
+        resource="blocks",
+        security="tok",
+        models=[
+            paragraph,
+            _heading(),
+            _block_with({"paragraph": "ref<Paragraph>", "heading_1": "ref<Heading1Block>"}),
+        ],
+        operations=[_minimal_op()],
+    )
+    with pytest.raises(SpecError, match="collides with the synthesized discriminator"):
+        _resource(spec)
+
+
+def test_oneof_naming_unknown_variant_raises():
+    """A discriminated variant `ref<Nope>` where Nope is undeclared -> SpecError."""
+    spec = nodes.ResourceSpec(
+        domain="notion",
+        resource="blocks",
+        security="tok",
+        models=[
+            _paragraph(),
+            _block_with({"paragraph": "ref<Paragraph>", "heading_1": "ref<Nope>"}),
+        ],
+        operations=[_minimal_op()],
+    )
+    with pytest.raises(SpecError, match="not a declared model"):
+        _resource(spec)
+
+
+def test_discriminated_variant_naming_non_object_model_raises():
+    """A discriminated variant `ref<Rows>` where Rows is a root_list model -> SpecError (covers the
+    ObjectModel guard: `_oneof_type` only checks ref-ness, not object-ness)."""
+    rows = nodes.ModelSpec(name="Rows", kind="root_list", item="Paragraph")
+    spec = nodes.ResourceSpec(
+        domain="notion",
+        resource="blocks",
+        security="tok",
+        models=[
+            rows,
+            _paragraph(),
+            _block_with({"rows": "ref<Rows>", "paragraph": "ref<Paragraph>"}),
+        ],
+        operations=[_minimal_op()],
+    )
+    with pytest.raises(SpecError, match="must be an object model"):
+        _resource(spec)

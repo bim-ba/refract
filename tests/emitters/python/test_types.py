@@ -1,6 +1,6 @@
 from refract.emitters.api import Import
 from refract.emitters.python.types import PythonTypeMapper
-from refract.ir.types import ListType, MapType, RefType, ScalarType, UnionType
+from refract.ir.types import ListType, LiteralType, MapType, RefType, ScalarType, UnionType
 
 m = PythonTypeMapper()
 
@@ -76,3 +76,9 @@ def test_discriminated_union_base_is_bare_and_carries_discriminator():
     rendered = m.render(union, optional=False)
     assert rendered.text == "Paragraph | Heading1Block"  # NO Annotated wrapper baked in
     assert rendered.discriminator == "type"
+
+
+def test_literal_type_lowers_to_typing_literal():
+    rendered = m.render(LiteralType(value="heading_1"), optional=False)
+    assert rendered.text == 'Literal["heading_1"]'
+    assert ("typing", "Literal") in {(i.module, i.name) for i in rendered.imports}

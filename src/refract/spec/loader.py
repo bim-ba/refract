@@ -1,12 +1,20 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import yaml
 from pydantic import ValidationError
 
 from refract import ir
-from refract.ir.types import ListType, MapType, NeutralType, RefType, ScalarType, UnionType
+from refract.ir.types import (
+    ListType,
+    LiteralType,
+    MapType,
+    NeutralType,
+    RefType,
+    ScalarType,
+    UnionType,
+)
 from refract.spec import nodes
 
 if TYPE_CHECKING:
@@ -135,6 +143,54 @@ def _model(spec: nodes.ModelSpec) -> ir.Model:
     )
 
 
+def _synthesize_discriminators(
+    models: tuple[ir.Model, ...], specs: list[nodes.ModelSpec]
+) -> tuple[ir.Model, ...]:
+    """Inject each discriminated-union variant's synthetic `Literal[label]` field (default B).
+
+    Variant 2: for a DISCRIMINATED `oneof` (discriminator set) every variant VALUE is a
+    `ref<Model>` - ref-ness is already enforced by `_oneof_type` upstream, so the parse is
+    guaranteed a RefType (the `cast` narrows it without a dead isinstance branch). An
+    UNDISCRIMINATED `oneof` (discriminator None) synthesizes nothing - its labels are
+    documentation only. Standalone (built models + their specs in, models out) so Task 9's
+    `load_shared_models` can reuse it verbatim.
+    """
+    by_name = {model.name: model for model in models}
+    injected: dict[str, list[ir.Field]] = {}  # variant model name -> synthetic tag fields
+    for model_spec in specs:
+        for field_spec in model_spec.fields:
+            oneof = field_spec.oneof
+            if oneof is None or oneof.discriminator is None:
+                continue
+            for label, variant_expr in oneof.variants.items():
+                target = cast("RefType", parse_neutral_type(variant_expr)).target
+                if target not in by_name:
+                    raise SpecError(
+                        f"field {field_spec.name!r}: discriminated-union variant "
+                        f"{target!r} is not a declared model"
+                    )
+                injected.setdefault(target, []).append(
+                    ir.Field(name=oneof.discriminator, type=LiteralType(value=label))
+                )
+    result: list[ir.Model] = []
+    for model in models:
+        extra = injected.get(model.name)
+        if extra is None:
+            result.append(model)
+            continue
+        if not isinstance(model, ir.ObjectModel):
+            raise SpecError(f"discriminated-union variant {model.name!r} must be an object model")
+        existing = {field.name for field in model.fields}
+        for synthetic in extra:
+            if synthetic.name in existing:
+                raise SpecError(
+                    f"variant {model.name!r}: field {synthetic.name!r} collides with the "
+                    "synthesized discriminator"
+                )
+        result.append(model.model_copy(update={"fields": (*extra, *model.fields)}))
+    return tuple(result)
+
+
 def _body(spec: nodes.BodySpec | None) -> ir.Body | None:
     """by_alias/omit_none take True/True defaults; ``dump`` text is not lowered into the IR."""
     return None if spec is None else ir.Body(model=spec.model)
@@ -210,11 +266,12 @@ def _module_docs(spec: nodes.ModuleDocsSpec) -> ir.ModuleDocs:
 
 
 def _resource(spec: nodes.ResourceSpec) -> ir.Resource:
+    models = _synthesize_discriminators(tuple(_model(model) for model in spec.models), spec.models)
     return ir.Resource(
         domain=spec.domain,
         resource=spec.resource,
         security=spec.security,  # base_url dropped - now ir.ClientConfig.server.base_url
-        models=tuple(_model(model) for model in spec.models),
+        models=models,
         operations=tuple(_operation(operation) for operation in spec.operations),
         documentation=spec.documentation,
         module_docs=_module_docs(spec.module_docs),

@@ -1,7 +1,15 @@
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from refract.ir.types import ListType, MapType, NeutralType, RefType, ScalarType, UnionType
+from refract.ir.types import (
+    ListType,
+    LiteralType,
+    MapType,
+    NeutralType,
+    RefType,
+    ScalarType,
+    UnionType,
+)
 
 _adapter = TypeAdapter(NeutralType)
 
@@ -74,3 +82,8 @@ def test_union_type_nests_inside_list_and_stays_hashable():
 def test_union_type_requires_at_least_two_variants():
     with pytest.raises(ValidationError):
         UnionType(variants=(ScalarType(scalar="string"),))
+
+
+def test_literal_type_round_trips():
+    lit = LiteralType(value="heading_1")
+    assert LiteralType.model_validate(lit.model_dump()) == lit
