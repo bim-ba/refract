@@ -182,6 +182,92 @@ def test_resolve_mcp_skips_operations_without_mcp_facet(me_resource):
     assert len(page.tools) == 1
 
 
+def test_resolve_mcp_omits_response_model_import_when_none():
+    """A bodyless, responseless mcp-faceted op (e.g. a delete) must skip the response-model
+    import: the tool signature returns ``-> None`` and no ``models_module`` import is emitted."""
+    op = ir.Operation(
+        name="delete",
+        method="DELETE",
+        path="widget/{id}",
+        operation_id="widget_delete",
+        params=(ir.Param(name="id", loc="path", type=_STRING),),
+        mcp=ir.McpMeta(
+            name="widget_delete",
+            safety=ir.Safety.DESTRUCTIVE,
+            title="Delete a widget",
+            documentation="Delete a widget.",
+        ),
+    )
+    res = ir.Resource(
+        domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
+    )
+    ctx = EmitContext(package_root="ycli.yandex.tracker")
+    page = resolve.resolve_mcp(res, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert "-> None:" in page.tools[0]
+    assert not any("widgets.models" in line for line in page.import_lines)
+
+
+def test_body_test_imports_skips_nested_ref_scan_for_non_object_model():
+    """A body model that resolves to something other than ``ObjectModel`` (e.g. a bare
+    ``RootListModel``) has no ``.fields`` to scan for nested refs - the import list is just the
+    body model itself."""
+    tags = ir.RootListModel(name="Tags", item="str")
+    res = ir.Resource(
+        domain="tracker", resource="things", security="oauth_token", models=(tags,), operations=()
+    )
+    models_module = "ycli.yandex.tracker.things.models"
+    imports = resolve._body_test_imports(res, ir.Body(model="Tags"), models_module)
+    assert imports == (Import(models_module, "Tags"),)
+
+
+def test_resolve_tests_cli_only_op_drops_client_surface():
+    """An op whose only test case is CLI-kind (no CLIENT case): the module doc drops the
+    "client" surface label, the import block skips the client-class + response-model imports,
+    and no ``_PAYLOAD_`` constant is emitted (there is no client-kind case to read a payload
+    from)."""
+    case = ir.TestCase(
+        name="widgets_list_cli",
+        kind=ir.TestKind.CLI,
+        http_method="GET",
+        path="widgets",
+        status=200,
+        response_json=[],
+        has_json=True,
+        asserts=["res.exit_code == 0"],
+        call="",
+    )
+    op = ir.Operation(
+        name="list",
+        method="GET",
+        path="widgets",
+        operation_id="widgets_list",
+        response_model="WidgetList",
+        cli=ir.CliMeta(name="list", documentation="List widgets."),
+        tests=(case,),
+    )
+    res = ir.Resource(
+        domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
+    )
+    ctx = EmitContext(
+        package_root="ycli.yandex.tracker",
+        config=ir.ClientConfig(
+            name="tracker", server=ir.Server(base_url="https://api.example"), auth=()
+        ),
+    )
+    page = resolve.resolve_tests(res, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert page.doc_block == ('"""Tracker /widgets resource - CLI, HTTP stubbed."""',)
+    assert page.import_lines == (
+        "import json",
+        "import responses",
+        "from typer.testing import CliRunner",
+        "import ycli.cli.app as cli",
+    )
+    assert page.constants == (
+        '_URL_list = "https://api.example/widgets"',
+        "_runner = CliRunner()",
+    )
+
+
 def test_resolve_tests_raises_without_client_config(me_resource):
     ctx = EmitContext(package_root="ycli.yandex.tracker", config=None)
     with pytest.raises(ValueError, match="requires ClientConfig"):
@@ -216,6 +302,21 @@ def test_select_scheme_raises_spec_error_for_unknown_security_name():
     config = ir.ClientConfig(name="x", server=ir.Server(base_url="https://x"), auth=())
     with pytest.raises(SpecError, match=r"nonexistent.*names no auth scheme"):
         resolve._select_scheme(config, "nonexistent")
+
+
+def test_select_scheme_continues_past_non_matching_entries():
+    """``config.auth`` with >1 entry: a non-matching earlier entry must not short-circuit the
+    search - the loop continues until it finds the name that matches ``security``."""
+    other = ir.HeaderAuth(header="X-Other", template="{tok}", inputs=(ir.AuthInput(name="tok"),))
+    wanted = ir.HeaderAuth(
+        header="Authorization", template="Bearer {token}", inputs=(ir.AuthInput(name="token"),)
+    )
+    config = ir.ClientConfig(
+        name="x",
+        server=ir.Server(base_url="https://x"),
+        auth=(("other", other), ("oauth_token", wanted)),
+    )
+    assert resolve._select_scheme(config, "oauth_token") is wanted
 
 
 def test_resolve_root_client_raises_without_client_config(me_resource):

@@ -611,10 +611,14 @@ def _assembled_options(
                             inner.append(f"{child.name}={option_name}")
                         case RefType() | ListType() | MapType():  # two-level nest -> escape hatch
                             raise SpecError(_handler_hint(op, field))
+                        case _:  # closed union (ir/types.py) - unreachable, not a real arm
+                            assert_never(child.type)
                 imports.append(Import(".models", target))
                 reassembly.append(f"{field.name}={target}({', '.join(inner)})")
             case ListType() | MapType():  # not flattenable to scalar leaves
                 raise SpecError(_handler_hint(op, field))
+            case _:  # closed union (ir/types.py) - unreachable, not a real arm
+                assert_never(field.type)
     _reject_duplicate_options(op, option_names)
     return option_decls, f"{body.model}({', '.join(reassembly)})", imports
 
