@@ -1,14 +1,16 @@
 """Whole-snapshot proof: every generated file under the committed L1 corpus
-(``examples/ycli-tracker/out/``) is syntactically valid Python.
+(``examples/ycli-tracker/out/``) is compilable Python.
 
-``ast.parse`` checks syntax only (no import resolution), so this holds even though the generated
-modules import ``ycli``/``uplink`` runtime packages that aren't installed here - it's a cheap,
-strong oracle against a real regression class: a resolver emitting a required parameter after a
-defaulted one (a ``SyntaxError``), a stray relative import, or any other malformed source that a
-byte-equality snapshot test wouldn't itself catch if the golden were ever regenerated wrong.
+``compile(..., "exec")`` compiles to bytecode without executing it, so this holds even though the
+generated modules import ``ycli``/``uplink`` runtime packages that aren't installed here (imports
+resolve only at run time). It is a strict superset of ``ast.parse``: besides the parse-level
+``SyntaxError`` classes (a required parameter after a defaulted one, a stray relative import), it
+also catches symbol-table ``SyntaxError``s that ``ast.parse`` silently admits - notably a
+DUPLICATE function argument, which a cross-source param collision (a body option colliding with a
+path/query param) would emit. It does NOT resolve imports or catch undefined names (those are
+run-time ``NameError``s, gated by the resolver unit tests and the behavioral tier instead).
 """
 
-import ast
 from pathlib import Path
 
 import pytest
@@ -23,6 +25,6 @@ def test_out_tree_is_not_empty():
 
 
 @pytest.mark.parametrize("path", _PY_FILES, ids=lambda p: str(p.relative_to(_OUT)))
-def test_generated_file_is_valid_python(path: Path):
+def test_generated_file_is_compilable_python(path: Path):
     source = path.read_text(encoding="utf-8")
-    ast.parse(source, filename=str(path))
+    compile(source, str(path), "exec")
