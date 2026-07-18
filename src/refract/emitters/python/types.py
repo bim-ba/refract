@@ -15,7 +15,9 @@ class PythonTypeMapper(TypeMapper):
     def render(self, neutral_type: NeutralType, *, optional: bool) -> RenderedType:
         base = self._base(neutral_type)
         if optional:
-            return RenderedType(text=f"{base.text} | None", imports=base.imports)
+            return RenderedType(
+                text=f"{base.text} | None", imports=base.imports, discriminator=base.discriminator
+            )
         return base
 
     def null_default(self, neutral_type: NeutralType, *, optional: bool) -> str | None:
@@ -37,16 +39,18 @@ class PythonTypeMapper(TypeMapper):
                 return RenderedType(
                     text=f"dict[{kr.text}, {vr.text}]", imports=kr.imports + vr.imports
                 )
-            # Unguarded on `discriminator` so this arm covers the WHOLE UnionType (keeps the
-            # `match` exhaustive for ty). Task 5 extends this arm to branch on the discriminator
-            # (a discriminated union additionally carries `RenderedType.discriminator`); until then
-            # both kinds lower to the bare PEP-604 union text, and no discriminated union is
-            # rendered before Task 5.
-            case UnionType(variants=variants):
+            # Unguarded on `discriminator` so this ONE arm covers the WHOLE UnionType (keeps the
+            # `match` exhaustive for ty, no shadowed/unreachable second arm). Both discriminated and
+            # undiscriminated unions lower to the same bare PEP-604 union text (`_model_field` is
+            # the single place that wraps a discriminated field in `Annotated[..., Field(...)]`);
+            # only `discriminator` differs - None for undiscriminated, the tag name otherwise.
+            case UnionType(variants=variants, discriminator=disc):
                 rendered = [self._base(v) for v in variants]
                 text = " | ".join(r.text for r in rendered)
                 return RenderedType(
-                    text=text, imports=tuple(chain.from_iterable(r.imports for r in rendered))
+                    text=text,
+                    imports=tuple(chain.from_iterable(r.imports for r in rendered)),
+                    discriminator=disc,
                 )
             case _:
                 assert_never(neutral_type)

@@ -25,6 +25,7 @@ class RenderedType:
 
     text: str
     imports: tuple[Import, ...] = ()
+    discriminator: str | None = None  # sibling tag field name, if this is a discriminated union
 
 
 @dataclass(frozen=True)

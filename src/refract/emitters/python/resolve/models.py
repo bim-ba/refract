@@ -17,14 +17,16 @@ if TYPE_CHECKING:
 
 
 def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Import]]:
-    """One model field line: ``name: Type = default`` or ``Field(...)`` for a described/aliased
-    field.
+    """One model field line: ``name: Type = default``, ``name: Type = Field(...)`` for a
+    described/aliased field, or ``name: Annotated[Type, Field(discriminator=...)]`` for a
+    discriminated union - the ONE place that assembles ``Field(...)``, so a discriminated field
+    with a description merges into a SINGLE ``Field(...)`` call rather than nesting two.
 
     The type renders from NeutralType via TypeMapper (the key port shift); the default is the
     explicit ``field.default`` or, absent that, ``type_mapper.null_default(...)`` (implied-null).
-    A described or aliased field renders ``Field(...)``: optional carries ``default=<default>``
-    first, then ``alias=`` (if set), then ``description=`` (if set). Long calls stay one line -
-    ruff wraps them.
+    A discriminated union has NO trailing ``= default`` - pydantic requires its ``Field(...)``
+    to live inside ``Annotated[...]``, ordered ``discriminator`` first, then ``alias``, then
+    ``description``. Long calls stay one line - ruff wraps them.
     """
     rendered = type_mapper.render(field.type, optional=field.optional)
     imports = list(rendered.imports)
@@ -33,16 +35,25 @@ def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Im
         if field.default is not None
         else type_mapper.null_default(field.type, optional=field.optional)
     )
-    if not field.description and not field.alias:
-        return f"    {field.name}: {rendered.text} = {default}", imports
+    text = rendered.text
+    if rendered.discriminator is not None:
+        text = f"Annotated[{text}, __FIELD__]"
+        imports += [Import("typing", "Annotated"), Import("pydantic", "Field")]
+    if rendered.discriminator is None and not field.description and not field.alias:
+        return f"    {field.name}: {text} = {default}", imports
     arguments: list[str] = []
-    if default is not None:
+    if rendered.discriminator is not None:
+        arguments.append(f"discriminator={py_str(rendered.discriminator)}")
+    if default is not None and rendered.discriminator is None:
         arguments.append(f"default={default}")
     if field.alias is not None:
         arguments.append(f"alias={py_str(field.alias)}")
     if field.description is not None:
         arguments.append(f"description={py_str(field.description)}")
-    return f"    {field.name}: {rendered.text} = Field({', '.join(arguments)})", imports
+    field_call = f"Field({', '.join(arguments)})"
+    if rendered.discriminator is not None:  # Field lives INSIDE Annotated[...], never as default
+        return f"    {field.name}: {text.replace('__FIELD__', field_call)}", imports
+    return f"    {field.name}: {text} = {field_call}", imports
 
 
 def _model_class(

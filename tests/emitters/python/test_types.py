@@ -66,3 +66,13 @@ def test_union_with_any_variant_pulls_the_typing_import():
     )
     rendered = m.render(union, optional=False)
     assert any(imp.module == "typing" and imp.name == "Any" for imp in rendered.imports)
+
+
+def test_discriminated_union_base_is_bare_and_carries_discriminator():
+    union = UnionType(
+        variants=(RefType(target="Paragraph"), RefType(target="Heading1Block")),
+        discriminator="type",
+    )
+    rendered = m.render(union, optional=False)
+    assert rendered.text == "Paragraph | Heading1Block"  # NO Annotated wrapper baked in
+    assert rendered.discriminator == "type"

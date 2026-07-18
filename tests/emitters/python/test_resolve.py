@@ -8,6 +8,7 @@ from refract.emitters.python import resolve
 from refract.emitters.python.docstrings import PythonDocstrings
 from refract.emitters.python.naming import PythonNaming
 from refract.emitters.python.types import PythonTypeMapper
+from refract.ir.types import UnionType
 from refract.spec import SpecError
 
 NAMING = PythonNaming()
@@ -84,6 +85,34 @@ def test_model_field_with_alias_emits_field_alias():
     ast.parse(f"class M:\n{decl}\n")  # must not raise SyntaxError
     assert 'alias="type"' in decl
     assert "Field(" in decl
+
+
+_UNION = UnionType(
+    variants=(ir.RefType(target="Paragraph"), ir.RefType(target="Heading1Block")),
+    discriminator="type",
+)
+
+
+def test_discriminated_field_emits_single_annotated_field_call():
+    """A discriminated union field renders ONE `Annotated[A | B, Field(discriminator=...)]` -
+    never a bare union nor a `= Field(...)` default (pydantic requires the discriminator inside
+    `Annotated[...]`)."""
+    line, imports = resolve._model_field(ir.Field(name="block", type=_UNION), TYPE_MAPPER)
+    assert line == '    block: Annotated[Paragraph | Heading1Block, Field(discriminator="type")]'
+    assert {("typing", "Annotated"), ("pydantic", "Field")} <= {(i.module, i.name) for i in imports}
+
+
+def test_discriminated_field_with_description_merges_one_field_call():
+    """A discriminated field with a description merges INTO the same `Field(...)` call - never
+    two nested `Field(...)` calls on one annotation."""
+    line, _imports = resolve._model_field(
+        ir.Field(name="block", type=_UNION, description="A block."), TYPE_MAPPER
+    )
+    assert line == (
+        "    block: Annotated[Paragraph | Heading1Block, "
+        'Field(discriminator="type", description="A block.")]'
+    )
+    assert line.count("Field(") == 1  # not two nested Field(...) calls
 
 
 _STRING = ir.ScalarType(scalar="string")
