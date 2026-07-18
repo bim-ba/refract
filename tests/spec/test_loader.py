@@ -398,6 +398,25 @@ def test_oneof_naming_unknown_variant_raises():
         _resource(spec)
 
 
+def test_load_shared_models(tmp_path):
+    p = tmp_path / "_models.yaml"
+    p.write_text(
+        "models:\n"
+        "  - name: ObjectMeta\n"
+        "    fields:\n"
+        "      - {name: name, type: string, optional: true}\n"
+    )
+    shared = SpecLoader.load_shared_models(p)
+    assert shared[0].name == "ObjectMeta"
+
+
+def test_load_shared_models_validation_error_raises_spec_error(tmp_path: Path):
+    models_yaml = tmp_path / "_models.yaml"
+    models_yaml.write_text("models:\n  - name: ObjectMeta\n    bogus_key: nope\n", encoding="utf-8")
+    with pytest.raises(SpecError, match="shared models failed validation"):
+        SpecLoader.load_shared_models(models_yaml)
+
+
 def test_discriminated_variant_naming_non_object_model_raises():
     """A discriminated variant `ref<Rows>` where Rows is a root_list model -> SpecError (covers the
     ObjectModel guard: `_oneof_type` only checks ref-ness, not object-ness)."""

@@ -1,7 +1,10 @@
 from pathlib import Path
 
-from refract.generation import Generator
-from refract.spec import SpecLoader
+import pytest
+
+from refract.generation import Generator, _attach_shared
+from refract.ir import ObjectModel, Resource
+from refract.spec import SpecError, SpecLoader
 
 _EX = Path(__file__).resolve().parent.parent / "examples" / "ycli-tracker"
 
@@ -75,3 +78,15 @@ def test_check_detects_drift(tmp_path):
     g.write(the_plan)
     next(iter(the_plan)).write_text("corrupted", encoding="utf-8")
     assert g.check(the_plan) == 1
+
+
+def test_attach_shared_rejects_name_collision():
+    res = Resource(
+        domain="k8s",
+        resource="pods",
+        security="tok",
+        models=(ObjectModel(name="ObjectMeta"),),
+        operations=(),
+    )
+    with pytest.raises(SpecError, match=r"defined both locally and in _models\.yaml"):
+        _attach_shared(res, (ObjectModel(name="ObjectMeta"),))

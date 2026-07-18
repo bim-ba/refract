@@ -12,7 +12,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-__all__ = ["ClientConfigNode", "ResourceSpec"]
+__all__ = ["ClientConfigNode", "ResourceSpec", "SharedModelsSpec"]
 
 
 class _Spec(BaseModel):
@@ -156,6 +156,16 @@ class ResourceSpec(_Spec):
     documentation: str | None = None
     models: list[ModelSpec] = Field(default_factory=list)
     operations: list[OperationSpec]
+
+
+# ------------------------------------------------------------------------ _models.yaml nodes
+
+
+class SharedModelsSpec(_Spec):
+    """Mirrors ``_models.yaml``: models shared across every resource.yaml in an API (the k8s
+    ``ObjectMeta`` anchor). Reuses the EXACT ``ModelSpec`` shape resource.yaml uses."""
+
+    models: list[ModelSpec] = Field(default_factory=list)
 
 
 # ------------------------------------------------------------------------- client.yaml nodes

@@ -336,3 +336,14 @@ class SpecLoader:
         except ValidationError as error:
             raise SpecError(f"{path}: client config failed validation -\n{error}") from error
         return _client_config(spec)
+
+    @staticmethod
+    def load_shared_models(path: Path) -> tuple[ir.Model, ...]:
+        """Load `_models.yaml` - models shared across every resource in an API. Reuses
+        `_synthesize_discriminators` so a shared discriminated union is also tag-synthesized."""
+        raw = _read_mapping(path)
+        try:
+            spec = nodes.SharedModelsSpec.model_validate(raw)
+        except ValidationError as error:
+            raise SpecError(f"{path}: shared models failed validation -\n{error}") from error
+        return _synthesize_discriminators(tuple(_model(m) for m in spec.models), spec.models)
