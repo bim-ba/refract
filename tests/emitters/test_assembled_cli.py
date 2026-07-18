@@ -192,6 +192,41 @@ def test_assembled_options_rejects_option_name_collision():
         resolve._assembled_options(res, op, TYPE_MAPPER, NAMING)
 
 
+def test_assembled_options_guards_shadowed_body_field():
+    """A body field named `id` (a builtin) must emit the guarded option identifier `id_` while the
+    reassembly KWARG stays the model field name -> `Widget(id=id_)` (wire/field name preserved)."""
+    model = ir.ObjectModel(name="Widget", fields=(ir.Field(name="id", type=_STRING),))
+    res = _single_body_resource(model)
+    decls, expr, _imports = resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
+    assert "id_: str" in " ".join(decls)  # guarded typer option identifier
+    assert expr == "Widget(id=id_)"  # KWARG = model field name; VALUE = guarded option identifier
+
+
+def test_cli_command_guards_shadowed_body_field_end_to_end():
+    """The whole write command must parse (a bare `id: str` typer option trips ruff A002; a keyword
+    field would be a SyntaxError) and forward the guarded value under the model-field kwarg."""
+    model = ir.ObjectModel(name="Widget", fields=(ir.Field(name="id", type=_STRING),))
+    op = ir.Operation(
+        name="create",
+        method="POST",
+        path="widgets",
+        operation_id="widgets_create",
+        body=ir.Body(model="Widget"),
+        cli=ir.CliMeta(name="create", documentation="Create a widget."),
+    )
+    res = ir.Resource(
+        domain="tracker",
+        resource="widgets",
+        security="oauth_token",
+        models=(model,),
+        operations=(op,),
+    )
+    block, _imports = resolve._cli_command(res, op, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    ast.parse(block)
+    assert "def create(ctx: typer.Context, id_: str) -> None:" in block
+    assert "app_ctx.tracker.widgets.create(Widget(id=id_))" in block
+
+
 def test_assembled_options_requires_write_body():
     """A bodyless op reaching the builder is a wiring bug - fail loud (mirrors `_cli_command`)."""
     op = ir.Operation(name="get", method="GET", path="things", operation_id="things_get")

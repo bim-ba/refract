@@ -14,6 +14,13 @@ def test_module_function_guards_shadowed_names():
     assert n.module_function("get") == "get"  # unchanged
 
 
+def test_safe_param_guards_shadowed_names():
+    assert n.safe_param("id") == "id_"  # shadows builtin -> ruff A002 without the guard
+    assert n.safe_param("type") == "type_"  # shadows builtin
+    assert n.safe_param("class") == "class_"  # keyword -> bare `class` is a SyntaxError
+    assert n.safe_param("priority_id") == "priority_id"  # unchanged (no-op on the corpus)
+
+
 def test_class_name_merges_the_three_helpers():
     assert n.class_name("me", "Client") == "MeClient"  # was resource_client_class
     assert n.class_name("tracker", "Resource") == "TrackerResource"  # was domain_resource_base

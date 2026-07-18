@@ -128,6 +128,49 @@ def test_generated_sources_are_ruff_clean(tmp_path):
         assert r.returncode == 0, r.stdout + r.stderr
 
 
+_SHADOW_WIDGET = ir.Resource(
+    domain="demo",
+    resource="widget",
+    security="token",
+    models=(
+        ir.ObjectModel(
+            name="Widget", fields=(ir.Field(name="id", type=ScalarType(scalar="integer")),)
+        ),
+    ),
+    operations=(
+        ir.Operation(
+            name="fetch",
+            method="GET",
+            path="widget/{id}",  # builtin-named path param -> `def fetch(id: str)` trips ruff A002
+            operation_id="widget_fetch",
+            response_model="Widget",
+            params=(
+                ir.Param(name="id", loc="path", type=ScalarType(scalar="string")),
+                ir.Param(name="type", loc="query", type=ScalarType(scalar="string"), optional=True),
+            ),
+        ),
+    ),
+)
+
+
+def test_generated_requests_with_shadowed_param_is_ruff_clean(tmp_path):
+    """Root proof of the param-shadow guard: a builtin-named path/query param must emit safe
+    identifiers so the generated `_requests.py` is A002-clean. `ruff check --select A002` is forced
+    because a file rendered under `tmp_path` does not inherit the project's ruff `select` config
+    (defaults omit the flake8-builtins `A` group), which would make an unqualified check vacuous."""
+    parts = (PythonNaming(), PythonTypeMapper(), PythonDocstrings(), make_environment())
+    ctx = EmitContext(package_root="demopkg", config=_CONFIG)
+    source = RuffFormatter().format(RequestsSurface(*parts).emit(_SHADOW_WIDGET, ctx))
+    assert "def fetch(id_: str, *, type_: str | None = None)" in source  # guard is active
+    assert 'path=f"widget/{id_}"' in source  # path references the guarded var; URL unchanged
+    module = tmp_path / "_requests.py"
+    module.write_text(source, encoding="utf-8")
+    result = subprocess.run(
+        ["ruff", "check", "--select", "A002", str(module)], capture_output=True, text=True
+    )
+    assert result.returncode == 0, result.stdout + result.stderr  # no builtin-arg-shadow
+
+
 def test_generated_root_client_imports_and_sends(tmp_path, monkeypatch):
     _write_pkg(tmp_path)
     monkeypatch.syspath_prepend(str(tmp_path))

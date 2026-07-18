@@ -47,6 +47,9 @@ class Naming(ABC):
     # module-level def-safe: list -> list_
     def module_function(self, name: str) -> str: ...
     @abstractmethod
+    # parameter-identifier-safe: id -> id_ (the caller preserves the wire name)
+    def safe_param(self, name: str) -> str: ...
+    @abstractmethod
     # merges the 3 *_class helpers
     def class_name(self, base: str, suffix: str) -> str: ...
     @abstractmethod

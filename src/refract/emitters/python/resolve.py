@@ -59,23 +59,41 @@ def indent_lines(lines: tuple[str, ...], prefix: str) -> tuple[str, ...]:
     return tuple(f"{prefix}{line}" if line else "" for line in lines)
 
 
-def param_decl(param: ir.Param, type_mapper: TypeMapper) -> tuple[str, tuple[Import, ...]]:
-    """Render one parameter declaration `name: Type` (+ ` = default`) and its imports."""
+def param_decl(
+    param: ir.Param, type_mapper: TypeMapper, naming: Naming
+) -> tuple[str, tuple[Import, ...]]:
+    """Render one parameter declaration `name: Type` (+ ` = default`) and its imports.
+
+    The declared identifier is shadow-guarded (`id` -> `id_`); the wire name (path placeholder,
+    query alias/key) is preserved by the CALLER, not here."""
     rt = type_mapper.render(param.type, optional=param.optional)
     default = (
         param.default
         if param.default is not None
         else type_mapper.null_default(param.type, optional=param.optional)
     )
-    decl = f"{param.name}: {rt.text}"
+    decl = f"{naming.safe_param(param.name)}: {rt.text}"
     if default is not None:
         decl = f"{decl} = {default}"
     return decl, rt.imports
 
 
-def path_expr(path: str) -> str:
-    """Emit an f-string when the path has `{placeholders}`, else a plain string literal."""
-    return f'f"{path}"' if "{" in path else f'"{path}"'
+def path_expr(path: str, params: tuple[ir.Param, ...], naming: Naming) -> str:
+    """Emit an f-string when the path has `{placeholders}`, else a plain string literal.
+
+    A path placeholder names its path param verbatim (`widget/{id}`); a shadowed name is rewritten
+    to the guarded identifier (`{id}` -> `{id_}`) so the f-string references the safe local var. The
+    substituted URL value is unchanged (a placeholder rename, not a wire change). Query params are
+    never in the path, so they are not considered here.
+    """
+    if "{" not in path:
+        return f'"{path}"'
+    for param in params:
+        if param.loc == "path":
+            safe = naming.safe_param(param.name)
+            if safe != param.name:
+                path = path.replace(f"{{{param.name}}}", f"{{{safe}}}")
+    return f'f"{path}"'
 
 
 def py_str(value: str) -> str:
@@ -91,7 +109,7 @@ def py_str(value: str) -> str:
 
 
 def signature_and_call(
-    op: ir.Operation, type_mapper: TypeMapper
+    op: ir.Operation, type_mapper: TypeMapper, naming: Naming
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[Import, ...]]:
     """(positional_decls, keyword_only_decls, call_args, param_type_imports).
 
@@ -106,9 +124,9 @@ def signature_and_call(
     imports: list[Import] = []
     for p in op.params:
         if p.loc == "path":
-            decl, imp = param_decl(p, type_mapper)
+            decl, imp = param_decl(p, type_mapper, naming)
             positional.append(decl)
-            call_args.append(p.name)
+            call_args.append(naming.safe_param(p.name))
             imports += imp
     if op.body is not None:
         positional.append(f"body: {op.body.model}")
@@ -116,9 +134,9 @@ def signature_and_call(
     keyword_only: list[str] = []
     for p in op.params:
         if p.loc == "query":
-            decl, imp = param_decl(p, type_mapper)
+            decl, imp = param_decl(p, type_mapper, naming)
             keyword_only.append(decl)
-            call_args.append(f"{p.name}={p.name}")
+            call_args.append(f"{naming.safe_param(p.name)}={naming.safe_param(p.name)}")
             imports += imp
     return tuple(positional), tuple(keyword_only), tuple(call_args), tuple(imports)
 
@@ -133,7 +151,9 @@ def _request_function(
     op: ir.Operation, naming: Naming, type_mapper: TypeMapper, docstrings: Docstrings
 ) -> tuple[str, list[Import]]:
     body = op.body  # write iff not None; narrowed to ir.Body below
-    positional, keyword_only, _call_args, param_imports = signature_and_call(op, type_mapper)
+    positional, keyword_only, _call_args, param_imports = signature_and_call(
+        op, type_mapper, naming
+    )
     imports: list[Import] = list(param_imports)
     if body is not None:  # write: `body: <model>` already in `positional`; add its `.models` import
         imports.append(Import(".models", body.model))
@@ -148,8 +168,10 @@ def _request_function(
     param_list = ", ".join(params)
     sig = f"def {function_name}({param_list}) -> Request[{return_type}]:"
 
-    kwargs = [f'method="{op.method}"', f"path={path_expr(op.path)}"]
-    query_items = [f'"{p.alias or p.name}": {p.name}' for p in op.params if p.loc == "query"]
+    kwargs = [f'method="{op.method}"', f"path={path_expr(op.path, op.params, naming)}"]
+    query_items = [
+        f'"{p.alias or p.name}": {naming.safe_param(p.name)}' for p in op.params if p.loc == "query"
+    ]
     if query_items:
         kwargs.append("query={" + ", ".join(query_items) + "}")
     if body is not None:  # render model_dump flags straight off ir.Body (no .dump)
@@ -197,7 +219,7 @@ def _client_method(
     (the shadow guard, so `list` -> `_requests.list_`). Docstring is the FULL `op.documentation`.
     """
     body = op.body  # write iff not None (narrowed to ir.Body below)
-    positional, keyword_only, call_args, param_imports = signature_and_call(op, type_mapper)
+    positional, keyword_only, call_args, param_imports = signature_and_call(op, type_mapper, naming)
     positional = ("self", *positional)
     imports: list[Import] = list(param_imports)
     if body is not None:  # write: typed body forwarded through unchanged; add its `.models` import
@@ -393,14 +415,15 @@ def _cli_write_parts(
     query_kwargs: list[str] = []
     param_imports: list[Import] = []
     for param in op.params:
-        decl, decl_imports = param_decl(param, type_mapper)
+        decl, decl_imports = param_decl(param, type_mapper, naming)
         param_imports += decl_imports
+        safe = naming.safe_param(param.name)  # the guarded local identifier forwarded to the client
         if param.loc == "path":
             path_decls.append(decl)
-            path_names.append(param.name)
+            path_names.append(safe)
         else:  # query
             query_decls.append(decl)
-            query_kwargs.append(f"{param.name}={param.name}")
+            query_kwargs.append(f"{safe}={safe}")
     no_default, with_default = _partition_by_default([*option_decls, *path_decls, *query_decls])
     signature_tail = "".join(f", {decl}" for decl in (*no_default, *with_default))
     call_args = ", ".join((*path_names, reassembly_expr, *query_kwargs))
@@ -566,18 +589,21 @@ def _assembled_options(
     for field in model.fields:
         match field.type:
             case ScalarType():
-                decl, decl_imports = _option_decl(field.name, field, type_mapper)
+                option_name = naming.safe_param(field.name)  # guarded typer option identifier
+                decl, decl_imports = _option_decl(option_name, field, type_mapper)
                 option_decls.append(decl)
-                option_names.append(field.name)
+                option_names.append(option_name)
                 imports += decl_imports
-                reassembly.append(f"{field.name}={field.name}")
+                reassembly.append(f"{field.name}={option_name}")  # KWARG=field name; VALUE=guarded
             case RefType(target=target):
                 nested = _require_object_model(op, res.model(target))
                 inner: list[str] = []
                 for child in nested.fields:
                     match child.type:
                         case ScalarType():
-                            option_name = naming.cli_option(field.name, child.name)
+                            option_name = naming.safe_param(
+                                naming.cli_option(field.name, child.name)
+                            )
                             decl, decl_imports = _option_decl(option_name, child, type_mapper)
                             option_decls.append(decl)
                             option_names.append(option_name)
@@ -605,7 +631,7 @@ def _mcp_signature(
 
     Path/query go through ``param_decl`` (TypeMapper). Parameters stay flat (not keyword-only):
     fastmcp reads them as ordinary arguments."""
-    positional, keyword_only, _call_args, imports = signature_and_call(op, type_mapper)
+    positional, keyword_only, _call_args, imports = signature_and_call(op, type_mapper, naming)
     parameters = [
         *positional,
         *keyword_only,
@@ -614,9 +640,9 @@ def _mcp_signature(
     return parameters, list(imports)
 
 
-def _mcp_call_args(op: ir.Operation, type_mapper: TypeMapper) -> str:
+def _mcp_call_args(op: ir.Operation, type_mapper: TypeMapper, naming: Naming) -> str:
     """Arguments forwarded to the client call: path, ``body``, then keyword query."""
-    _positional, _keyword_only, call_args, _imports = signature_and_call(op, type_mapper)
+    _positional, _keyword_only, call_args, _imports = signature_and_call(op, type_mapper, naming)
     return ", ".join(call_args)
 
 
@@ -646,7 +672,7 @@ def _mcp_tool(
         f"def {naming.module_function(op.name)}({', '.join(parameters)}) "
         f"-> {op.response_model or 'None'}:"
     )
-    call = f"client.{res.resource}.{op.name}({_mcp_call_args(op, type_mapper)})"
+    call = f"client.{res.resource}.{op.name}({_mcp_call_args(op, type_mapper, naming)})"
     guard = meta.require_found
     if guard is None:
         body = [f"    return {call}"]

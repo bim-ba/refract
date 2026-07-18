@@ -92,6 +92,9 @@ def test_language_backend_composes_strategies():
         def module_function(self, name):
             return name
 
+        def safe_param(self, name):
+            return name
+
         def class_name(self, base, suffix):
             return base + suffix
 

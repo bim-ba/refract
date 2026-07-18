@@ -86,6 +86,81 @@ def test_model_field_with_alias_emits_field_alias():
     assert "Field(" in decl
 
 
+_STRING = ir.ScalarType(scalar="string")
+
+
+def _shadowed_op() -> ir.Operation:
+    """A GET with a builtin-named path param (`id`) and a builtin-named query param (`type`)."""
+    return ir.Operation(
+        name="fetch",
+        method="GET",
+        path="widget/{id}",
+        operation_id="widget_fetch",
+        params=(
+            ir.Param(name="id", loc="path", type=_STRING),
+            ir.Param(name="type", loc="query", type=_STRING, optional=True),
+        ),
+        response_model="Widget",
+    )
+
+
+def test_request_function_guards_shadowed_path_and_query_identifiers():
+    """A path param `id` / query param `type` shadow builtins: the emitted Python IDENTIFIERS are
+    suffixed (`id_`, `type_`), the path f-string references the guarded var, and the query dict
+    KEY stays the wire name (`type`) while its VALUE is the guarded identifier."""
+    text, _imports = resolve._request_function(_shadowed_op(), NAMING, TYPE_MAPPER, DOCSTRINGS)
+    ast.parse(text)  # a bare `def fetch(id: str, ...)` would need no parse-guard, but `class` would
+    assert "def fetch(id_: str, *, type_: str | None = None)" in text  # guarded identifiers
+    assert 'path=f"widget/{id_}"' in text  # path references the guarded var; the URL is unchanged
+    assert 'query={"type": type_}' in text  # wire KEY stays `type`; VALUE is the guarded identifier
+
+
+def test_request_function_guards_keyword_path_param():
+    """A keyword path param (`class`) is an outright SyntaxError unless guarded to `class_`."""
+    op = ir.Operation(
+        name="fetch",
+        method="GET",
+        path="node/{class}",
+        operation_id="node_fetch",
+        params=(ir.Param(name="class", loc="path", type=_STRING),),
+        response_model="Node",
+    )
+    text, _imports = resolve._request_function(op, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    ast.parse(text)  # `def fetch(class: str)` would raise SyntaxError here
+    assert "def fetch(class_: str)" in text
+    assert 'path=f"node/{class_}"' in text
+
+
+def test_client_method_guards_shadowed_identifiers():
+    """The client sugar method mirrors the guard: guarded signature + guarded builder call."""
+    text, _imports = resolve._client_method(_shadowed_op(), NAMING, TYPE_MAPPER, DOCSTRINGS)
+    ast.parse(f"class C:\n{text}")  # method text is indented one level to sit inside the class
+    assert "def fetch(self, id_: str, *, type_: str | None = None)" in text
+    assert "_requests.fetch(id_, type_=type_)" in text  # positional path + keyword query, guarded
+
+
+def test_mcp_tool_guards_shadowed_identifiers():
+    """The guard flows through `signature_and_call` into the MCP tool signature + client call."""
+    op = _shadowed_op().model_copy(
+        update={
+            "mcp": ir.McpMeta(
+                name="widget_fetch",
+                safety=ir.Safety.RO,
+                title="Fetch a widget",
+                documentation="Fetch a widget.",
+            )
+        }
+    )
+    res = ir.Resource(
+        domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
+    )
+    text, _imports = resolve._mcp_tool(res, op, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    ast.parse(text)
+    assert "id_: str" in text
+    assert "type_: str | None = None" in text
+    assert "client.widgets.fetch(id_, type_=type_)" in text
+
+
 def test_cli_command_raises_without_cli_facet(me_resource):
     op = me_resource.operations[0].model_copy(update={"cli": None})
     with pytest.raises(ValueError, match="no cli facet"):
