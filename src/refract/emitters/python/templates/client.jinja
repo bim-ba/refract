@@ -1,0 +1,11 @@
+{# src/refract/emitters/python/templates/client.jinja #}
+{% extends "_module.jinja" %}
+{% block body %}
+{{ page.class_header }}
+{% for line in page.class_doc_lines %}
+{{ line }}
+{% endfor %}
+{% for method in page.methods %}
+{{ method }}
+{% endfor %}
+{% endblock %}

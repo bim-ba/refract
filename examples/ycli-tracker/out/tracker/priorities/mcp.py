@@ -2,7 +2,6 @@
 
 from fastmcp import FastMCP
 from fastmcp.dependencies import Depends
-
 from ycli.yandex.tracker.client import TrackerClient
 from ycli.yandex.tracker.dependencies import (
     RO,

@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from refract import ir
-from refract.loader import load
+from refract.spec import SpecLoader
 
 _EXAMPLES = Path(__file__).resolve().parent.parent / "examples" / "ycli-tracker"
 
@@ -15,7 +15,7 @@ def me_spec_path() -> Path:
 
 @pytest.fixture
 def me_resource(me_spec_path: Path) -> ir.Resource:
-    return load(me_spec_path)
+    return SpecLoader.load(me_spec_path)
 
 
 @pytest.fixture
@@ -25,4 +25,14 @@ def priorities_spec_path() -> Path:
 
 @pytest.fixture
 def priorities_resource(priorities_spec_path: Path) -> ir.Resource:
-    return load(priorities_spec_path)
+    return SpecLoader.load(priorities_spec_path)
+
+
+@pytest.fixture
+def client_config_path() -> Path:
+    return _EXAMPLES / "client.yaml"
+
+
+@pytest.fixture
+def client_config(client_config_path: Path) -> ir.ClientConfig:
+    return SpecLoader.load_client_config(client_config_path)

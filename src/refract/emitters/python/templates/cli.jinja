@@ -1,0 +1,7 @@
+{# src/refract/emitters/python/templates/cli.jinja #}
+{% extends "_module.jinja" %}
+{% block body %}
+{% for block in page.blocks %}
+{{ block }}
+{% endfor %}
+{% endblock %}

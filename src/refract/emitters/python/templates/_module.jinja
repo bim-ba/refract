@@ -1,0 +1,8 @@
+{# src/refract/emitters/python/templates/_module.jinja #}
+{% for line in page.doc_block %}{{ line }}
+{% endfor %}
+{% for line in page.header_lines %}{{ line }}
+{% endfor %}
+{% for line in page.import_lines %}{{ line }}
+{% endfor %}
+{% block body %}{% endblock %}

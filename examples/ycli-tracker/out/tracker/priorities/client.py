@@ -1,25 +1,15 @@
-"""Declarative Tracker priorities client (uplink) — transport ONLY.
-
-NOTE: no ``from __future__ import annotations`` — uplink reads annotations eagerly.
-"""
-
-import uplink
+"""Declarative Tracker priorities client - transport ONLY (thin sugar over request builders)."""
 
 from ycli.yandex.tracker.base import TrackerResource
-from ycli.yandex.tracker.priorities.models import (
-    Priority,
-    PriorityCreate,
-    PriorityList,
-    PriorityUpdate,
-)
+
+from . import _requests
+from .models import Priority, PriorityCreate, PriorityList, PriorityUpdate
 
 
 class PrioritiesClient(TrackerResource):
     """Declarative HTTP for ``/priorities`` (list + create + edit)."""
 
-    @uplink.returns.json()
-    @uplink.get("priorities")
-    def list(self) -> PriorityList:  # ty: ignore[empty-body]
+    def list(self) -> PriorityList:
         """``GET /priorities`` → priority listing.
 
         Example:
@@ -27,12 +17,7 @@ class PrioritiesClient(TrackerResource):
             >>> client.priorities.list().root[0].key  # doctest: +SKIP
             'normal'
         """
-
-    @uplink.returns.json()
-    @uplink.json
-    @uplink.post("priorities/")
-    def _create(self, body: uplink.Body) -> Priority:  # ty: ignore[empty-body]
-        """``POST /priorities/`` — create from a ready JSON body (see ``create``)."""
+        return self._session.send(_requests.list_())
 
     def create(self, body: PriorityCreate) -> Priority:
         """Create a priority from a typed ``PriorityCreate`` body. Returns the new ``Priority``.
@@ -44,18 +29,7 @@ class PrioritiesClient(TrackerResource):
             ... ).key  # doctest: +SKIP
             'one'
         """
-        return self._create(body=body.model_dump(by_alias=True, exclude_none=True))
-
-    @uplink.returns.json()
-    @uplink.json
-    @uplink.patch("priorities/{priority_id}")
-    def _edit(
-        self,
-        priority_id: uplink.Path,
-        body: uplink.Body,
-        version: uplink.Query("version") = None,  # ty: ignore[invalid-type-form]
-    ) -> Priority:  # ty: ignore[empty-body]
-        """``PATCH /priorities/{priority_id}?version=`` — edit from a ready body (see ``edit``)."""
+        return self._session.send(_requests.create(body))
 
     def edit(
         self, priority_id: str, body: PriorityUpdate, *, version: int | None = None
@@ -72,8 +46,4 @@ class PrioritiesClient(TrackerResource):
             ... ).key  # doctest: +SKIP
             'one'
         """
-        return self._edit(
-            priority_id=priority_id,
-            body=body.model_dump(by_alias=True, exclude_none=True),
-            version=version,
-        )
+        return self._session.send(_requests.edit(priority_id, body, version=version))

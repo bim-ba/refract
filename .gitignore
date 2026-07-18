@@ -10,3 +10,5 @@ dist/
 # AI
 .mcp.json
 PROMPT.md
+
+artifacts/

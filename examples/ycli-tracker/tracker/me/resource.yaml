@@ -1,10 +1,9 @@
 domain: tracker
 resource: me
-base_url: https://api.tracker.yandex.net/v3
 security: oauth_token
 module_docs:
   models: "Pydantic model for Tracker /myself (Me)."
-  client: "Declarative Tracker /myself client (uplink) — transport ONLY."
+  client: "Declarative Tracker /myself client - transport ONLY (thin sugar over request builders)."
   cli: "`tracker me` commands."
   mcp: "Tracker /myself FastMCP tool (reads-only) — Depends DI."
   cli_group_help: "Tracker authenticated user."

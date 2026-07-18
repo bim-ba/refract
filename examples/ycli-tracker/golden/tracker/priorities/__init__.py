@@ -1,1 +1,0 @@
-"""Tracker /priorities resource package."""

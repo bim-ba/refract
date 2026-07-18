@@ -1,0 +1,20 @@
+from refract.emitters.python.naming import PythonNaming
+
+n = PythonNaming()
+
+
+def test_pascal():
+    assert n.pascal("me") == "Me"
+    assert n.pascal("localized_name") == "LocalizedName"
+
+
+def test_module_function_guards_shadowed_names():
+    assert n.module_function("list") == "list_"  # shadows builtin at module scope
+    assert n.module_function("import") == "import_"  # keyword
+    assert n.module_function("get") == "get"  # unchanged
+
+
+def test_class_name_merges_the_three_helpers():
+    assert n.class_name("me", "Client") == "MeClient"  # was resource_client_class
+    assert n.class_name("tracker", "Resource") == "TrackerResource"  # was domain_resource_base
+    assert n.class_name("tracker", "Client") == "TrackerClient"  # was domain_client_class
