@@ -1,0 +1,78 @@
+"""D1 (F2): `resolve_tests` must iterate ALL tests-bearing operations, not just the first.
+
+Builds a synthetic two-operation Resource (modeled on the `me` fixture's `ir.TestCase` shape -
+see examples/ycli-tracker/tracker/me/resource.yaml) where BOTH operations carry a client-kind
+test case, and asserts both render with distinct, per-op `_URL_<op.name>` constants.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from refract import ir
+from refract.emitters.api import EmitContext
+from refract.emitters.python.docstrings import PythonDocstrings
+from refract.emitters.python.naming import PythonNaming
+from refract.emitters.python.resolve import resolve_tests
+from refract.emitters.python.types import PythonTypeMapper
+
+
+def _client_case(op_name: str) -> ir.TestCase:
+    return ir.TestCase(
+        name=f"{op_name}_client",
+        kind=ir.TestKind.CLIENT,
+        http_method="GET",
+        path=f"widgets/{op_name}",
+        status=200,
+        response_json={"id": 1},
+        has_json=True,
+        asserts=["isinstance(widget, Widget)"],
+        call=f'WidgetClient(token="t").widgets.{op_name}()',
+    )
+
+
+def _op(name: str) -> ir.Operation:
+    return ir.Operation(
+        name=name,
+        method="GET",
+        path=f"widgets/{name}",
+        operation_id=f"widgets_{name}",
+        response_model="Widget",
+        tests=(_client_case(name),),
+    )
+
+
+@pytest.fixture
+def two_op_tested_resource() -> ir.Resource:
+    return ir.Resource(
+        domain="widget",
+        resource="widgets",
+        security="token",
+        models=(),
+        operations=(_op("first"), _op("second")),
+    )
+
+
+@pytest.fixture
+def ctx() -> EmitContext:
+    return EmitContext(
+        package_root="ycli.widget.widgets",
+        config=ir.ClientConfig(
+            name="widget",
+            server=ir.Server(base_url="https://api.widget.example"),
+            auth=(),
+        ),
+    )
+
+
+@pytest.fixture
+def parts() -> tuple[PythonNaming, PythonTypeMapper, PythonDocstrings]:
+    return PythonNaming(), PythonTypeMapper(), PythonDocstrings()
+
+
+def test_resolve_tests_renders_all_tests_bearing_ops(two_op_tested_resource, ctx, parts):
+    page = resolve_tests(two_op_tested_resource, ctx, *parts)
+    names = list(page.tests)
+    assert any("test_first" in t for t in names)
+    assert any("test_second" in t for t in names)
+    assert sum(c.startswith("_URL") for c in page.constants) == 2

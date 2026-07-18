@@ -48,21 +48,21 @@ def test_me_tests(me_resource):
     assert "from ycli.yandex.tracker.client import TrackerClient" in out
     assert "from ycli.yandex.tracker.me import mcp as me_mcp_module" in out
     assert "from ycli.yandex.tracker.me.models import Me" in out
-    assert '_URL = "https://api.tracker.yandex.net/v3/myself"' in out
+    assert '_URL_get = "https://api.tracker.yandex.net/v3/myself"' in out
     assert (
-        '_PAYLOAD = {"uid": 42, "login": "alice", "display": "Alice A.", '
+        '_PAYLOAD_get = {"uid": 42, "login": "alice", "display": "Alice A.", '
         '"email": "alice@example.com"}'
     ) in out
     assert "_runner = CliRunner()" in out
     assert "@responses.activate" in out
     assert "def test_me_client_get(creds):" in out
-    assert "responses.add(responses.GET, _URL, json=_PAYLOAD, status=200)" in out
+    assert "responses.add(responses.GET, _URL_get, json=_PAYLOAD_get, status=200)" in out
     assert 'me = TrackerClient(oauth_token="t", organization_id="o").me.get()' in out
     assert "assert isinstance(me, Me)" in out
     assert 'res = _runner.invoke(cli.app, ["--format", "json", "tracker", "me", "get"])' in out
     assert 'return await client.call_tool("tracker_me_get", {})' in out
     assert "async def test_me_mcp_auth_guard(creds):" in out
-    assert "responses.add(responses.GET, _URL, json={}, status=401)" in out
+    assert "responses.add(responses.GET, _URL_get, json={}, status=401)" in out
     assert "async with Client(me_mcp_module.mcp) as client:" in out
     assert "with pytest.raises(ToolError):" in out
     assert '            await client.call_tool("me_get", {})' in out
