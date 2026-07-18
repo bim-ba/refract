@@ -47,3 +47,11 @@ def test_send_raises_for_status():
 
     with pytest.raises(httpx.HTTPStatusError):
         _session(handler).send(Request(method="GET", path="missing", response_model=_Me))
+
+
+def test_send_returns_none_for_bodyless_op():
+    def handler(req):
+        return httpx.Response(204)
+
+    result = _session(handler).send(Request(method="DELETE", path="widget/1", response_model=None))
+    assert result is None

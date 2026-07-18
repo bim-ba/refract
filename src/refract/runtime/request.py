@@ -12,6 +12,6 @@ class Request(Generic[T]):  # noqa: UP046 -- Generic[T] pinned by the runtime sp
 
     method: str
     path: str
-    response_model: type[T]
+    response_model: type[T] | None
     query: dict[str, Any] | None = None
     json_body: Any = None
