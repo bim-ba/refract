@@ -23,6 +23,8 @@ class PythonLayout(Layout):
         base = f"{res.domain}/{res.resource}"
         if surface == "root_client":  # per-API domain surface (DomainEmitter)
             return f"{res.domain}/client.py"
+        if surface == "shared_models":  # per-API domain surface (DomainEmitter)
+            return f"{res.domain}/shared_models.py"
         if surface == "tests":
             return f"tests/{res.domain}/test_{res.resource}.py"
         if surface == "package":

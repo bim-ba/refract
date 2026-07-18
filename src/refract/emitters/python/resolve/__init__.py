@@ -13,7 +13,11 @@ from refract.emitters.python.resolve.cli import (
 )
 from refract.emitters.python.resolve.client import _client_method, resolve_client
 from refract.emitters.python.resolve.mcp import _mcp_tool, resolve_mcp
-from refract.emitters.python.resolve.models import _model_field, resolve_models
+from refract.emitters.python.resolve.models import (
+    _model_field,
+    resolve_models,
+    resolve_shared_models,
+)
 from refract.emitters.python.resolve.requests import _request_function, resolve_requests
 from refract.emitters.python.resolve.root_client import _select_scheme, resolve_root_client
 from refract.emitters.python.resolve.tests import (
@@ -46,6 +50,7 @@ __all__ = [
     "resolve_models",
     "resolve_requests",
     "resolve_root_client",
+    "resolve_shared_models",
     "resolve_tests",
     "signature_and_call",
     "signature_params",

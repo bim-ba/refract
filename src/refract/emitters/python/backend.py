@@ -13,6 +13,7 @@ from refract.emitters.python.surfaces.models import ModelsSurface
 from refract.emitters.python.surfaces.package import PackageSurface
 from refract.emitters.python.surfaces.requests import RequestsSurface
 from refract.emitters.python.surfaces.root_client import RootClientSurface
+from refract.emitters.python.surfaces.shared_models import SharedModelsSurface
 from refract.emitters.python.surfaces.tests import TestsSurface
 from refract.emitters.python.types import PythonTypeMapper
 from refract.emitters.registry import backend
@@ -20,8 +21,8 @@ from refract.emitters.registry import backend
 
 @backend("python")
 def python_backend() -> LanguageBackend:
-    """Compose the Python backend: 5 injected strategies + 7 per-resource surfaces + root_client
-    glue."""
+    """Compose the Python backend: 5 injected strategies + 7 per-resource surfaces + root_client/
+    shared_models domain glue."""
     naming = PythonNaming()
     type_mapper = PythonTypeMapper()
     docstrings = PythonDocstrings()
@@ -44,5 +45,5 @@ def python_backend() -> LanguageBackend:
         docstrings=docstrings,
         layout=PythonLayout(),
         surfaces=surfaces,
-        domain_surfaces=(RootClientSurface(*parts),),
+        domain_surfaces=(RootClientSurface(*parts), SharedModelsSurface(*parts)),
     )

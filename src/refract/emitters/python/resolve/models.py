@@ -9,7 +9,7 @@ from refract.emitters.python.resolve._common import (
     render_imports,
 )
 from refract.emitters.python.views import ModelsPageView
-from refract.ir import ObjectModel, RootListModel
+from refract.ir import ObjectModel, RefType, RootListModel
 
 if TYPE_CHECKING:
     from refract import ir
@@ -105,26 +105,23 @@ def _model_class(
             assert_never(model)
 
 
-def resolve_models(
-    res: ir.Resource,
-    ctx: EmitContext,
-    naming: Naming,
-    type_mapper: TypeMapper,
-    docstrings: Docstrings,
-) -> ModelsPageView:
-    """IR -> ModelsPageView: module docstring, imports (APIModel + pydantic + those collected
-    from types), finished classes. ``APIModel`` is always imported."""
+def _base_model_imports(
+    models: tuple[ir.Model, ...], ctx: EmitContext, type_mapper: TypeMapper
+) -> list[Import]:
+    """Imports common to any models page (local resource page or the per-domain shared page):
+    ``APIModel`` always, ``pydantic.Field``/``RootModel`` when a described/aliased field or a
+    ``RootListModel`` is present, plus any hand-written scalar-format coercer the fields pull in."""
     imports: list[Import] = [Import(_shared_models_module(ctx), "APIModel")]
     if any(
         field.description or field.alias
-        for model in res.models
+        for model in models
         if isinstance(model, ObjectModel)
         for field in model.fields
     ):
         imports.append(Import("pydantic", "Field"))
-    if any(isinstance(model, RootListModel) for model in res.models):
+    if any(isinstance(model, RootListModel) for model in models):
         imports.append(Import("pydantic", "RootModel"))
-    for model in res.models:
+    for model in models:
         if not isinstance(model, ObjectModel):
             continue
         for field in model.fields:
@@ -133,13 +130,83 @@ def resolve_models(
                 # The coercer helper (e.g. `coerce_int64`) is HAND-WRITTEN in the shared base
                 # module alongside `APIModel`/`require_found` - refract emits only the wiring.
                 imports.append(Import(_shared_models_module(ctx), rendered.coercer))
+    return imports
+
+
+def _model_classes(
+    models: tuple[ir.Model, ...], type_mapper: TypeMapper, docstrings: Docstrings
+) -> tuple[list[str], list[Import]]:
+    """The finished class bodies for a set of models, plus the imports their fields' types pull
+    in (`_model_class`, reused verbatim for both a resource's local models and a domain's shared
+    models)."""
     classes: list[str] = []
-    for model in res.models:
+    imports: list[Import] = []
+    for model in models:
         text, class_imports = _model_class(model, type_mapper, docstrings)
         classes.append(text)
         imports += class_imports
+    return classes, imports
+
+
+def _shared_ref_imports(
+    models: tuple[ir.Model, ...], shared_names: set[str], ctx: EmitContext
+) -> list[Import]:
+    """One-level ref scan: a field whose ``ref<Target>`` names a SHARED model (membership in
+    ``shared_names``, i.e. ``res.shared_models``) needs a cross-file import from
+    ``{ctx.package_root}.shared_models`` - a same-file LOCAL ref (target only in ``res.models``)
+    needs none, since local models all live in the same ``models.py``. A one-level scan suffices
+    for the embedded-field anchor (e.g. ``ObjectMeta`` on a k8s object); a nested ref (list/map of
+    refs, or a ref two levels down) is Task 11's recursive walker to adopt, rule-of-three."""
+    imports: list[Import] = []
+    for model in models:
+        if not isinstance(model, ObjectModel):
+            continue
+        for field in model.fields:
+            if isinstance(field.type, RefType) and field.type.target in shared_names:
+                imports.append(Import(f"{ctx.package_root}.shared_models", field.type.target))
+    return imports
+
+
+def resolve_models(
+    res: ir.Resource,
+    ctx: EmitContext,
+    naming: Naming,
+    type_mapper: TypeMapper,
+    docstrings: Docstrings,
+) -> ModelsPageView:
+    """IR -> ModelsPageView: module docstring, imports (APIModel + pydantic + those collected
+    from types + shared-model cross-file imports), finished classes. ``APIModel`` is always
+    imported."""
+    imports = _base_model_imports(res.models, ctx, type_mapper)
+    classes, class_imports = _model_classes(res.models, type_mapper, docstrings)
+    imports += class_imports
+    imports += _shared_ref_imports(res.models, {m.name for m in res.shared_models}, ctx)
     return ModelsPageView(
         doc_block=docstrings.render(res.module_docs.models, ""),
+        header_lines=("from __future__ import annotations",),
+        import_lines=render_imports(tuple(imports)),
+        classes=tuple(classes),
+    )
+
+
+def resolve_shared_models(
+    resources: tuple[ir.Resource, ...],
+    ctx: EmitContext,
+    naming: Naming,
+    type_mapper: TypeMapper,
+    docstrings: Docstrings,
+) -> ModelsPageView:
+    """Emit ``resources[0].shared_models`` ONCE (a DomainEmitter, run per-domain) - identical
+    across the domain by Task 9's ``_attach_shared``, so any one resource's ``shared_models``
+    tuple stands in for the whole domain's. Reuses ``_model_class`` verbatim; no shared-import
+    scan here, since a ref among shared models resolves to the SAME emitted file (local, not
+    cross-file)."""
+    models = resources[0].shared_models
+    imports = _base_model_imports(models, ctx, type_mapper)
+    classes, class_imports = _model_classes(models, type_mapper, docstrings)
+    imports += class_imports
+    return ModelsPageView(
+        doc_block=docstrings.render(f"Shared models for the {resources[0].domain_title} API.", ""),
         header_lines=("from __future__ import annotations",),
         import_lines=render_imports(tuple(imports)),
         classes=tuple(classes),

@@ -79,8 +79,9 @@ class Generator:
         ctx = EmitContext(package_root=_package_root(resources[0]), config=config)
         files: dict[str, str] = {}
         for surface in self._backend.domain_surfaces:
-            path = self._backend.layout.path(resources[0], surface.name)
-            files[path] = self._backend.formatter.format(surface.emit(resources, ctx))
+            if surface.applies(resources):
+                path = self._backend.layout.path(resources[0], surface.name)
+                files[path] = self._backend.formatter.format(surface.emit(resources, ctx))
         return files
 
     def plan(

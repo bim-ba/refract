@@ -106,7 +106,13 @@ class DomainEmitter(ABC):
     root_client aggregates resources + builds Session/`httpx.Client(auth=...)` from `ctx.config`.
     """
 
-    name: str  # "root_client"
+    name: str  # "root_client" | "shared_models"
+
+    def applies(self, resources: tuple[ir.Resource, ...]) -> bool:
+        """Gate before `render_domain` emits + writes a file. Defaults True (root_client always
+        applies); a surface gated on domain-level data presence (e.g. shared_models, empty when
+        no `_models.yaml`) overrides this to skip emitting an empty file."""
+        return True
 
     @abstractmethod
     def emit(self, resources: tuple[ir.Resource, ...], ctx: EmitContext) -> str: ...

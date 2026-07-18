@@ -15,7 +15,7 @@ def test_backend_composes_all_strategies_and_surfaces():
         "mcp",
         "tests",
     }
-    assert {s.name for s in b.domain_surfaces} == {"root_client"}  # per-API glue
+    assert {s.name for s in b.domain_surfaces} == {"root_client", "shared_models"}  # per-API glue
 
 
 def test_registered_and_resolvable():

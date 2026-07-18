@@ -12,3 +12,4 @@ def test_surface_paths():
     assert lay.path(_res, "mcp") == "tracker/me/mcp.py"
     assert lay.path(_res, "package") == "tracker/me/__init__.py"
     assert lay.path(_res, "tests") == "tests/tracker/test_me.py"
+    assert lay.path(_res, "shared_models") == "tracker/shared_models.py"
