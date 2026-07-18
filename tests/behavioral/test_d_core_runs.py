@@ -51,6 +51,14 @@ _WIDGET = ir.Resource(
             body=ir.Body(mode="typed_model", model="WidgetCreate"),  # by_alias/omit_none
             response_model="Widget",
         ),
+        ir.Operation(
+            name="delete",
+            method="DELETE",
+            path="widget/{widget_id}",
+            operation_id="widget_delete",
+            response_model=None,
+            params=(ir.Param(name="widget_id", loc="path", type=ScalarType(scalar="string")),),
+        ),
     ),
 )
 
@@ -128,6 +136,8 @@ def test_generated_root_client_imports_and_sends(tmp_path, monkeypatch):
     # root client installs (httpx.Auth on the client) must reach the transport's request.
     def handler(request):
         assert request.headers["Authorization"] == "Bearer x"  # auth-agnostic, auth on client
+        if request.method == "DELETE":
+            return httpx.Response(204)
         return httpx.Response(200, json={"id": 1, "name": "x"})
 
     real_client = httpx.Client
@@ -152,6 +162,7 @@ def test_generated_root_client_imports_and_sends(tmp_path, monkeypatch):
         client = root_mod.DemoClient(token="x")
         widget = client.widget.get()
         assert isinstance(widget, Widget) and widget.id == 1
+        assert client.widget.delete("1") is None  # bodyless -> None
     finally:
         for name in (
             "demopkg.client",
