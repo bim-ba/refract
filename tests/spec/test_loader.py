@@ -335,6 +335,35 @@ def _block_with(variants: dict[str, str]) -> nodes.ModelSpec:
     )
 
 
+def test_undiscriminated_oneof_synthesizes_no_tag_field():
+    """V3 (coverage): an UNDISCRIMINATED `oneof` (no discriminator) synthesizes NO tag field - the
+    `oneof.discriminator is None` skip in `_synthesize_discriminators`. Driven through `_resource`
+    (the synthesis entry point); other tests exercised undiscriminated unions only at the `_field`
+    level, never end-to-end through this pass, so the skip arm was untested here."""
+    spec = nodes.ResourceSpec(
+        domain="notion",
+        resource="blocks",
+        security="tok",
+        models=[
+            _paragraph(),
+            nodes.ModelSpec(
+                name="Block",
+                fields=[
+                    nodes.FieldSpec(
+                        name="body",
+                        oneof=nodes.OneOfSpec(variants={"txt": "string", "para": "ref<Paragraph>"}),
+                    )
+                ],
+            ),
+        ],
+        operations=[_minimal_op()],
+    )
+    res = _resource(spec)
+    paragraph = res.model("Paragraph")
+    assert isinstance(paragraph, ObjectModel)  # narrow the model union before field access
+    assert [field.name for field in paragraph.fields] == ["text"]  # no tag injected
+
+
 def test_synthesizes_literal_tag_field_on_each_variant():
     spec = nodes.ResourceSpec(
         domain="notion",

@@ -97,6 +97,22 @@ def test_model_field_with_alias_emits_field_alias():
     assert "Field(" in decl
 
 
+def test_resolve_models_alias_only_field_imports_pydantic_field():
+    """V2 (coverage): a model whose only field carries an `alias` but NO description must still
+    import `pydantic.Field` at the MODULE level (`_base_model_imports`' `field.description or
+    field.alias` - the `alias` arm). The corpus has no aliased model field, so this arm was never
+    load-bearing; a regression drops the import and the emitted module `NameError`s on `Field`."""
+    model = ir.ObjectModel(
+        name="Widget",
+        fields=(ir.Field(name="type_", type=ir.ScalarType(scalar="string"), alias="type"),),
+    )
+    res = ir.Resource(
+        domain="tracker", resource="widgets", security="oauth_token", models=(model,), operations=()
+    )
+    page = resolve.resolve_models(res, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert any("import" in line and "Field" in line for line in page.import_lines)
+
+
 def test_int64_field_wraps_annotated_before_validator():
     """A formatted scalar field wraps `Annotated[<base>, BeforeValidator(<coercer>)]` - independent
     of the discriminator branch (format is scalar-only; a union is never a scalar, so the two
@@ -200,6 +216,27 @@ def _shadowed_op() -> ir.Operation:
         ),
         response_model="Widget",
     )
+
+
+def test_request_function_query_param_uses_alias_as_wire_key():
+    """V1 (coverage): a query param whose wire alias differs from its Python name emits the ALIAS as
+    the query-dict KEY (`{"pageToken": page_token}`), not the Python name (`p.alias or p.name`). The
+    corpus only had `alias == name`, so this arm was never load-bearing; a regression would emit the
+    Python name as the wire key -> silently-wrong HTTP requests."""
+    op = ir.Operation(
+        name="list",
+        method="GET",
+        path="widgets",
+        operation_id="widgets_list",
+        params=(
+            ir.Param(
+                name="page_token", loc="query", type=_STRING, optional=True, alias="pageToken"
+            ),
+        ),
+        response_model="Widget",
+    )
+    text, _imports = resolve._request_function(op, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert 'query={"pageToken": page_token}' in text  # wire KEY is the alias, VALUE the Python name
 
 
 def test_request_function_guards_shadowed_path_and_query_identifiers():

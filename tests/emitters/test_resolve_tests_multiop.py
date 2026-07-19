@@ -72,6 +72,36 @@ def parts() -> tuple[PythonNaming, PythonTypeMapper, PythonDocstrings]:
     return PythonNaming(), PythonTypeMapper(), PythonDocstrings()
 
 
+def test_resolve_tests_client_op_without_response_model_omits_none_import(ctx, parts):
+    """V4 (coverage): a CLIENT-tested op with NO response_model (e.g. a 204) must NOT emit
+    `Import(module, None)` -> `from module import None`. Every client-tested corpus op carried a
+    response model, so resolve/tests' `op.response_model` truthiness guard was never driven."""
+    case = ir.TestCase(
+        name="remove_client",
+        kind=ir.TestKind.CLIENT,
+        http_method="DELETE",
+        path="widgets/remove",
+        status=204,
+        response_json=None,
+        has_json=False,
+        asserts=["res is None"],
+        call='WidgetClient(token="t").widgets.remove()',
+    )
+    op = ir.Operation(
+        name="remove",
+        method="DELETE",
+        path="widgets/remove",
+        operation_id="widgets_remove",
+        response_model=None,
+        tests=(case,),
+    )
+    res = ir.Resource(
+        domain="widget", resource="widgets", security="token", models=(), operations=(op,)
+    )
+    page = resolve_tests(res, ctx, *parts)
+    assert "import None" not in "\n".join(page.import_lines)
+
+
 def test_resolve_tests_renders_all_tests_bearing_ops(two_op_tested_resource, ctx, parts):
     page = resolve_tests(two_op_tested_resource, ctx, *parts)
     names = list(page.tests)
