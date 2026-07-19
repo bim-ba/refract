@@ -108,3 +108,36 @@ def test_type_ref_targets_unwraps_containers_without_recursing_into_models():
     )
     assert _type_ref_targets(ScalarType(scalar="string")) == ()
     assert _type_ref_targets(LiteralType(value="x")) == ()
+
+
+def test_body_test_imports_routes_shared_transitive_ref_to_shared_module():
+    """C2 (case-3): a CLIENT test's authored `call` constructs a body model whose field reaches a
+    SHARED model (`WidgetCreate{metadata: ref<ObjectMeta>}`). The transitive import for that shared
+    name must resolve to the per-domain shared module, not the resource-local models module (which
+    would dangle at import/run time)."""
+    from refract.emitters.python.resolve.tests import _body_test_imports
+    from refract.ir import Body, Field, ObjectModel, Resource
+    from refract.ir.types import RefType
+
+    meta = ObjectModel(name="ObjectMeta")
+    create = ObjectModel(
+        name="WidgetCreate", fields=(Field(name="metadata", type=RefType(target="ObjectMeta")),)
+    )
+    res = Resource(
+        domain="demo",
+        resource="widgets",
+        security="tok",
+        models=(create,),
+        operations=(),
+        shared_models=(meta,),
+    )
+    imports = _body_test_imports(
+        res,
+        Body(model="WidgetCreate"),
+        "ycli.yandex.demo.widgets.models",
+        "ycli.yandex.demo.shared_models",
+    )
+    modules = {(imp.module, imp.name) for imp in imports}
+    assert ("ycli.yandex.demo.shared_models", "ObjectMeta") in modules
+    assert ("ycli.yandex.demo.widgets.models", "WidgetCreate") in modules
+    assert ("ycli.yandex.demo.widgets.models", "ObjectMeta") not in modules

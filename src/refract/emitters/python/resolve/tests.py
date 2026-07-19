@@ -35,7 +35,9 @@ def _tests_module_doc(res: ir.Resource, ops: tuple[ir.Operation, ...], kinds: se
     return f"{res.domain_title} /{paths} resource - {surfaces}, HTTP stubbed."
 
 
-def _body_test_imports(res: ir.Resource, body: ir.Body, models_module: str) -> tuple[Import, ...]:
+def _body_test_imports(
+    res: ir.Resource, body: ir.Body, models_module: str, shared_module: str
+) -> tuple[Import, ...]:
     """The body model's import, plus every model TRANSITIVELY reachable from its fields via
     RefType - unwrapping ListType/MapType/UnionType at any depth (``_referenced_model_names``),
     not just a directly-nested ``ref<...>`` field.
@@ -43,12 +45,20 @@ def _body_test_imports(res: ir.Resource, body: ir.Body, models_module: str) -> t
     A CLIENT-kind test's authored ``call`` constructs the body model literally in Python (e.g.
     ``PriorityCreate(name=LocalizedName(...))`` or, for a `list<ref<Item>>` field,
     ``Widget(items=[Item(...)])``), so every model named in that construction needs its own
-    import - at any nesting depth, not one level only.
+    import - at any nesting depth, not one level only. A reachable name that is a SHARED model is
+    imported from the per-domain ``shared_module`` (it lives in ``{domain}/shared_models.py``), not
+    the resource's local ``models_module``. ``body.model`` itself is never shared - a shared model
+    as a body is rejected at plan time - so it always imports from ``models_module``.
     """
     model = res.model(body.model)
     imports = [Import(models_module, body.model)]
     if isinstance(model, ObjectModel):
-        imports += [Import(models_module, name) for name in _referenced_model_names(model, res)]
+        shared_names = {shared.name for shared in res.shared_models}
+        for name in _referenced_model_names(model, res):
+            if name in shared_names:
+                imports.append(Import(shared_module, name))
+            else:
+                imports.append(Import(models_module, name))
     return tuple(imports)
 
 
@@ -93,13 +103,14 @@ def _tests_imports(
             f"from {ctx.package_root}.{res.resource} import mcp as {res.resource}_mcp_module"
         )
     models_module = f"{ctx.package_root}.{res.resource}.models"
+    shared_module = f"{ctx.package_root}.shared_models"
     model_imports: list[Import] = []
     for op in ops:
         has_client_case = any(case.kind is TestKind.CLIENT for case in op.tests)
         if has_client_case and op.response_model:
             model_imports.append(Import(models_module, op.response_model))
         if has_client_case and op.body is not None:
-            model_imports.extend(_body_test_imports(res, op.body, models_module))
+            model_imports.extend(_body_test_imports(res, op.body, models_module, shared_module))
     first_party.extend(render_imports(tuple(model_imports)))
     return (*stdlib, *third_party, *first_party)
 

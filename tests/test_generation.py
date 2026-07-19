@@ -92,6 +92,54 @@ def test_attach_shared_rejects_name_collision():
         _attach_shared(res, (ObjectModel(name="ObjectMeta"),))
 
 
+def test_attach_shared_rejects_shared_model_as_response_model():
+    """C2 (fail-loud): a shared model used DIRECTLY as an op's response model would be imported from
+    the resource's LOCAL `.models` by requests/client/mcp/tests and dangle - reject at plan time."""
+    from refract.ir import Operation
+
+    res = Resource(
+        domain="k8s",
+        resource="pods",
+        security="tok",
+        models=(),
+        operations=(
+            Operation(
+                name="get",
+                method="GET",
+                path="p",
+                operation_id="pods_get",
+                response_model="ObjectMeta",
+            ),
+        ),
+    )
+    with pytest.raises(SpecError, match="response model"):
+        _attach_shared(res, (ObjectModel(name="ObjectMeta"),))
+
+
+def test_attach_shared_rejects_shared_model_as_request_body():
+    """C2 (fail-loud): a shared model used DIRECTLY as an op's request body dangles the same way."""
+    from refract.ir import Body, Operation
+
+    res = Resource(
+        domain="k8s",
+        resource="pods",
+        security="tok",
+        models=(),
+        operations=(
+            Operation(
+                name="put",
+                method="PUT",
+                path="p",
+                operation_id="pods_put",
+                body=Body(model="ObjectMeta"),
+                response_model=None,
+            ),
+        ),
+    )
+    with pytest.raises(SpecError, match="request body"):
+        _attach_shared(res, (ObjectModel(name="ObjectMeta"),))
+
+
 def test_plan_threads_shared_models_end_to_end(tmp_path):
     """`_models.yaml` PRESENT, driven through the REAL entry point (`Generator.plan`), not
     `SpecLoader.load_shared_models` called directly.
@@ -163,3 +211,8 @@ def test_plan_threads_shared_models_end_to_end(tmp_path):
 
     cli_source = the_plan[tmp_path / "out" / "demo" / "widgets" / "cli.py"]
     assert "metadata=ObjectMeta(name=metadata_name)" in cli_source
+    # C2 (case-3): the cli-flattened shared ref target must import from the per-domain
+    # `..shared_models` (where ObjectMeta actually lives), NOT the resource's local `.models` - the
+    # latter would dangle at import time. The reassembly expr above alone did not catch this.
+    assert "from ..shared_models import ObjectMeta" in cli_source
+    assert "from .models import ObjectMeta" not in cli_source

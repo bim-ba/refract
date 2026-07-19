@@ -264,7 +264,10 @@ def _assembled_options(
     # which would resolve refs inside a shape the per-field loop is about to REJECT and leak a bare
     # KeyError (from `res.model` on a dangling nested ref) instead of the friendly `handler:`
     # SpecError. On the accepted path (scalar + one-level ref) that walk finds nothing beyond these
-    # targets anyway. `.models` mirrors requests/client - the CLI wiring (D5b) supplies the module.
+    # targets anyway. `.models` mirrors requests/client; a target that is a SHARED model lives in
+    # the per-domain `..shared_models` instead (body.model itself is never shared - that is rejected
+    # at plan time - so it always imports from `.models`).
+    shared_names = {shared.name for shared in res.shared_models}
     option_decls: list[str] = []
     option_names: list[str] = []
     reassembly: list[str] = []
@@ -298,7 +301,10 @@ def _assembled_options(
                             raise SpecError(_handler_hint(op, field))
                         case _:  # closed union (ir/types.py) - unreachable, not a real arm
                             assert_never(child.type)
-                imports.append(Import(".models", target))  # accepted one-level ref -> import target
+                if target in shared_names:  # one-level ref -> import its target (shared or local)
+                    imports.append(Import("..shared_models", target))
+                else:
+                    imports.append(Import(".models", target))
                 reassembly.append(f"{field.name}={target}({', '.join(inner)})")
             case ListType() | MapType() | UnionType() | LiteralType():  # not flattenable to scalars
                 raise SpecError(_handler_hint(op, field))

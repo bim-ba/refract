@@ -50,7 +50,32 @@ def _attach_shared(res: ir.Resource, shared: tuple[ir.Model, ...]) -> ir.Resourc
             f"{res.resource}: model name(s) {sorted(collisions)} defined both locally and in "
             "_models.yaml"
         )
+    _reject_shared_as_body_or_response(res, {m.name for m in shared})
     return res.model_copy(update={"shared_models": shared})
+
+
+def _reject_shared_as_body_or_response(res: ir.Resource, shared_names: set[str]) -> None:
+    """Fail-loud (P1 scope): a shared model is supported as an EMBEDDED field of a local model (its
+    `models.py` imports it cross-file), but NOT directly as an operation's request body or response
+    model. In those positions requests/client/mcp/tests import the model by name from the LOCAL
+    `.models` module, so a shared model would dangle at import time. Supporting a shared body/
+    response model is deferred; reject rather than emit unimportable code. (A shared model reached
+    THROUGH a local body model's field IS handled - see resolve/cli + resolve/tests.)"""
+    if not shared_names:
+        return
+    for op in res.operations:
+        if op.response_model in shared_names:
+            raise SpecError(
+                f"{res.resource}: operation {op.name!r} returns shared model "
+                f"{op.response_model!r} - a shared model cannot be an operation's response model; "
+                "embed it as a field of a local model instead"
+            )
+        if op.body is not None and op.body.model in shared_names:
+            raise SpecError(
+                f"{res.resource}: operation {op.name!r} takes shared model {op.body.model!r} as "
+                "its request body - a shared model cannot be a body model; embed it in a local "
+                "model instead"
+            )
 
 
 class Generator:

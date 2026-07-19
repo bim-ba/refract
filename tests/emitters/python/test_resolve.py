@@ -313,7 +313,9 @@ def test_body_test_imports_skips_nested_ref_scan_for_non_object_model():
         domain="tracker", resource="things", security="oauth_token", models=(tags,), operations=()
     )
     models_module = "ycli.yandex.tracker.things.models"
-    imports = resolve._body_test_imports(res, ir.Body(model="Tags"), models_module)
+    imports = resolve._body_test_imports(
+        res, ir.Body(model="Tags"), models_module, "ycli.yandex.tracker.shared_models"
+    )
     assert imports == (Import(models_module, "Tags"),)
 
 
@@ -407,7 +409,9 @@ def test_body_test_imports_includes_nested_list_ref():
     )
     res = ir.Resource(domain="d", resource="r", security="t", models=(widget, item), operations=())
     module = "ycli.yandex.d.r.models"
-    imports = resolve._body_test_imports(res, ir.Body(model="Widget"), module)
+    imports = resolve._body_test_imports(
+        res, ir.Body(model="Widget"), module, "ycli.yandex.d.shared_models"
+    )
     assert Import(module, "Item") in imports
     assert Import(module, "Widget") in imports
 
