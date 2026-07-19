@@ -1,6 +1,6 @@
 from refract.emitters.api import Import
 from refract.emitters.python.types import PythonTypeMapper
-from refract.ir.types import ListType, MapType, RefType, ScalarType
+from refract.ir.types import ListType, LiteralType, MapType, RefType, ScalarType, UnionType
 
 m = PythonTypeMapper()
 
@@ -37,3 +37,79 @@ def test_containers():
         ).text
         == "dict[str, int]"
     )
+
+
+def test_undiscriminated_scalar_union_renders_pep604():
+    union = UnionType(
+        variants=(ScalarType(scalar="string"), ScalarType(scalar="integer")), discriminator=None
+    )
+    assert m.render(union, optional=False).text == "str | int"
+
+
+def test_undiscriminated_union_optional_wraps_whole():
+    union = UnionType(
+        variants=(ScalarType(scalar="string"), ScalarType(scalar="integer")), discriminator=None
+    )
+    assert m.render(union, optional=True).text == "str | int | None"
+
+
+def test_undiscriminated_union_of_refs_renders_bare_names():
+    union = UnionType(
+        variants=(RefType(target="Paragraph"), RefType(target="Heading1Block")), discriminator=None
+    )
+    assert m.render(union, optional=False).text == "Paragraph | Heading1Block"
+
+
+def test_union_with_any_variant_pulls_the_typing_import():
+    union = UnionType(
+        variants=(ScalarType(scalar="any"), ScalarType(scalar="integer")), discriminator=None
+    )
+    rendered = m.render(union, optional=False)
+    assert any(imp.module == "typing" and imp.name == "Any" for imp in rendered.imports)
+
+
+def test_discriminated_union_base_is_bare_and_carries_discriminator():
+    union = UnionType(
+        variants=(RefType(target="Paragraph"), RefType(target="Heading1Block")),
+        discriminator="type",
+    )
+    rendered = m.render(union, optional=False)
+    assert rendered.text == "Paragraph | Heading1Block"  # NO Annotated wrapper baked in
+    assert rendered.discriminator == "type"
+
+
+def test_literal_type_lowers_to_typing_literal():
+    rendered = m.render(LiteralType(value="heading_1"), optional=False)
+    assert rendered.text == 'Literal["heading_1"]'
+    assert ("typing", "Literal") in {(i.module, i.name) for i in rendered.imports}
+
+
+def test_int64_format_keeps_int_and_names_a_coercer():
+    from refract.ir.types import ScalarType
+
+    rendered = m.render(ScalarType(scalar="integer", format="int64"), optional=False)
+    assert rendered.text == "int"
+    assert rendered.coercer == "coerce_int64"
+
+
+def test_rfc2822_format_swaps_to_datetime():
+    from refract.ir.types import ScalarType
+
+    rendered = m.render(ScalarType(scalar="string", format="rfc2822"), optional=False)
+    assert rendered.text == "datetime"
+    assert ("datetime", "datetime") in {(i.module, i.name) for i in rendered.imports}
+
+
+def test_unknown_format_is_a_noop():
+    from refract.ir.types import ScalarType
+
+    rendered = m.render(ScalarType(scalar="integer", format="weird"), optional=False)
+    assert rendered.text == "int" and rendered.coercer is None
+
+
+def test_int64_format_optional_wraps_coercer_base_with_pep604_none():
+    """The `| None` wrap in `render` is OUTSIDE the coerced base text, and `coercer` still
+    survives the optional rebuild (mirrors the `discriminator` threading test)."""
+    rendered = m.render(ScalarType(scalar="integer", format="int64"), optional=True)
+    assert rendered.text == "int | None"
+    assert rendered.coercer == "coerce_int64"

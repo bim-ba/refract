@@ -76,6 +76,54 @@ def test_resource_model_accessor_and_domain_title():
         res.model("Nope")
 
 
+def test_model_falls_back_to_shared():
+    meta = ir.ObjectModel(name="ObjectMeta")
+    res = ir.Resource(
+        domain="k8s",
+        resource="pods",
+        security="tok",
+        models=(),
+        operations=(),
+        shared_models=(meta,),
+    )
+    assert res.model("ObjectMeta") is meta
+
+
+def test_local_wins_over_shared_is_not_reached_because_collision_is_rejected():
+    """`model()` is local-first: a name defined locally resolves to the LOCAL model; a name only in
+    shared resolves via the fallback. A name in BOTH never reaches `model()` - it is rejected at
+    plan time by `_attach_shared` (see `test_attach_shared_rejects_name_collision`), so there is no
+    runtime "local wins" ambiguity to test - only these two non-colliding paths."""
+    local = ir.ObjectModel(name="Priority")
+    shared = ir.ObjectModel(name="ObjectMeta")
+    res = ir.Resource(
+        domain="k8s",
+        resource="pods",
+        security="tok",
+        models=(local,),
+        operations=(),
+        shared_models=(shared,),
+    )
+    assert res.model("Priority") is local  # local-defined name resolves locally
+    assert res.model("ObjectMeta") is shared  # shared-only name resolves via the fallback
+
+
+def test_model_shared_fallback_skips_non_matching_candidates_before_match():
+    """The shared-models loop must actually iterate past a non-matching candidate (not just match
+    on the first try), so both arms of its `if candidate.name == name` are exercised."""
+    other = ir.ObjectModel(name="Other")
+    meta = ir.ObjectModel(name="ObjectMeta")
+    res = ir.Resource(
+        domain="k8s",
+        resource="pods",
+        security="tok",
+        models=(),
+        operations=(),
+        shared_models=(other, meta),
+    )
+    assert res.model("ObjectMeta") is meta
+
+
 def test_safety_and_test_kind_accept_string_values():
     assert ir.Safety("RO") is ir.Safety.RO
     assert ir.Safety("DESTRUCTIVE") is ir.Safety.DESTRUCTIVE

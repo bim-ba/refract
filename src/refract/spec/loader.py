@@ -1,12 +1,20 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import yaml
 from pydantic import ValidationError
 
 from refract import ir
-from refract.ir.types import ListType, MapType, NeutralType, RefType, ScalarType
+from refract.ir.types import (
+    ListType,
+    LiteralType,
+    MapType,
+    NeutralType,
+    RefType,
+    ScalarType,
+    UnionType,
+)
 from refract.spec import nodes
 
 if TYPE_CHECKING:
@@ -58,14 +66,50 @@ def parse_neutral_type(text: str) -> NeutralType:
 
 
 def _field(spec: nodes.FieldSpec) -> ir.Field:
+    if spec.type is not None and spec.oneof is not None:
+        raise SpecError(f"field {spec.name!r}: set exactly one of 'type' and 'oneof', not both")
+    if spec.oneof is not None:
+        neutral_type: NeutralType = _oneof_type(spec.name, spec.oneof)
+    elif spec.type is not None:
+        neutral_type = parse_neutral_type(spec.type)
+    else:
+        raise SpecError(f"field {spec.name!r}: needs 'type' or 'oneof'")
+    if spec.format is not None:
+        if not isinstance(neutral_type, ScalarType):
+            raise SpecError(f"field {spec.name!r}: format is only valid on a scalar type")
+        neutral_type = neutral_type.model_copy(update={"format": spec.format})
     return ir.Field(
         name=spec.name,
-        type=parse_neutral_type(spec.type),
+        type=neutral_type,
         optional=spec.optional,
         default=spec.default,
         alias=spec.alias,
         description=spec.description,
     )
+
+
+def _oneof_type(field_name: str, spec: nodes.OneOfSpec) -> UnionType:
+    """Lower a structured `oneof:` node to a UnionType (Variant 2: one node, both union kinds).
+
+    Variant VALUES are neutral type-EXPRESSIONS, so an undiscriminated union may mix
+    scalars/lists/refs; a discriminated union (`discriminator` set) requires every variant to be a
+    `ref<Model>` (pydantic discriminated unions need BaseModel arms). Map KEYS are wire tag values
+    when discriminated, documentation-only labels when not.
+    """
+    variants = tuple(parse_neutral_type(expr) for expr in spec.variants.values())
+    if spec.discriminator is not None:
+        for label, expr, variant in zip(
+            spec.variants, spec.variants.values(), variants, strict=True
+        ):
+            if not isinstance(variant, RefType):
+                raise SpecError(
+                    f"field {field_name!r}: discriminated variant {label!r} must be a "
+                    f"ref<Model>, got {expr!r}"
+                )
+    try:
+        return UnionType(variants=variants, discriminator=spec.discriminator)
+    except ValueError as error:  # the >= 2 validator
+        raise SpecError(f"field {field_name!r}: {error}") from error
 
 
 def _param(spec: nodes.ParamSpec) -> ir.Param:
@@ -101,6 +145,54 @@ def _model(spec: nodes.ModelSpec) -> ir.Model:
         fields=tuple(_field(field) for field in spec.fields),
         documentation=spec.documentation,
     )
+
+
+def _synthesize_discriminators(
+    models: tuple[ir.Model, ...], specs: list[nodes.ModelSpec]
+) -> tuple[ir.Model, ...]:
+    """Inject each discriminated-union variant's synthetic `Literal[label]` field (default B).
+
+    Variant 2: for a DISCRIMINATED `oneof` (discriminator set) every variant VALUE is a
+    `ref<Model>` - ref-ness is already enforced by `_oneof_type` upstream, so the parse is
+    guaranteed a RefType (the `cast` narrows it without a dead isinstance branch). An
+    UNDISCRIMINATED `oneof` (discriminator None) synthesizes nothing - its labels are
+    documentation only. Standalone (built models + their specs in, models out) so Task 9's
+    `load_shared_models` can reuse it verbatim.
+    """
+    by_name = {model.name: model for model in models}
+    injected: dict[str, list[ir.Field]] = {}  # variant model name -> synthetic tag fields
+    for model_spec in specs:
+        for field_spec in model_spec.fields:
+            oneof = field_spec.oneof
+            if oneof is None or oneof.discriminator is None:
+                continue
+            for label, variant_expr in oneof.variants.items():
+                target = cast("RefType", parse_neutral_type(variant_expr)).target
+                if target not in by_name:
+                    raise SpecError(
+                        f"field {field_spec.name!r}: discriminated-union variant "
+                        f"{target!r} is not a declared model"
+                    )
+                injected.setdefault(target, []).append(
+                    ir.Field(name=oneof.discriminator, type=LiteralType(value=label))
+                )
+    result: list[ir.Model] = []
+    for model in models:
+        extra = injected.get(model.name)
+        if extra is None:
+            result.append(model)
+            continue
+        if not isinstance(model, ir.ObjectModel):
+            raise SpecError(f"discriminated-union variant {model.name!r} must be an object model")
+        existing = {field.name for field in model.fields}
+        for synthetic in extra:
+            if synthetic.name in existing:
+                raise SpecError(
+                    f"variant {model.name!r}: field {synthetic.name!r} collides with the "
+                    "synthesized discriminator"
+                )
+        result.append(model.model_copy(update={"fields": (*extra, *model.fields)}))
+    return tuple(result)
 
 
 def _body(spec: nodes.BodySpec | None) -> ir.Body | None:
@@ -178,11 +270,12 @@ def _module_docs(spec: nodes.ModuleDocsSpec) -> ir.ModuleDocs:
 
 
 def _resource(spec: nodes.ResourceSpec) -> ir.Resource:
+    models = _synthesize_discriminators(tuple(_model(model) for model in spec.models), spec.models)
     return ir.Resource(
         domain=spec.domain,
         resource=spec.resource,
         security=spec.security,  # base_url dropped - now ir.ClientConfig.server.base_url
-        models=tuple(_model(model) for model in spec.models),
+        models=models,
         operations=tuple(_operation(operation) for operation in spec.operations),
         documentation=spec.documentation,
         module_docs=_module_docs(spec.module_docs),
@@ -243,3 +336,14 @@ class SpecLoader:
         except ValidationError as error:
             raise SpecError(f"{path}: client config failed validation -\n{error}") from error
         return _client_config(spec)
+
+    @staticmethod
+    def load_shared_models(path: Path) -> tuple[ir.Model, ...]:
+        """Load `_models.yaml` - models shared across every resource in an API. Reuses
+        `_synthesize_discriminators` so a shared discriminated union is also tag-synthesized."""
+        raw = _read_mapping(path)
+        try:
+            spec = nodes.SharedModelsSpec.model_validate(raw)
+        except ValidationError as error:
+            raise SpecError(f"{path}: shared models failed validation -\n{error}") from error
+        return _synthesize_discriminators(tuple(_model(m) for m in spec.models), spec.models)

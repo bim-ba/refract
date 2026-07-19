@@ -1,8 +1,9 @@
 """Input schema: pydantic nodes mirroring authored resource.yaml + client.yaml one-to-one.
 
 Every node sets ``extra="forbid"`` so a typo or a missing required key is rejected with a
-located error before any emitter runs. Types stay raw here (``FieldSpec.type: str``); the loader
-parses them into the neutral ``NeutralType`` and lowers the nodes into frozen ``refract.ir``.
+located error before any emitter runs. Types stay raw here (``FieldSpec.type: str | None``,
+mutually exclusive with ``FieldSpec.oneof``); the loader parses them into the neutral
+``NeutralType`` and lowers the nodes into frozen ``refract.ir``.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-__all__ = ["ClientConfigNode", "ResourceSpec"]
+__all__ = ["ClientConfigNode", "ResourceSpec", "SharedModelsSpec"]
 
 
 class _Spec(BaseModel):
@@ -23,11 +24,26 @@ class _Spec(BaseModel):
 # ---------------------------------------------------------------------- resource.yaml nodes
 
 
+class OneOfSpec(_Spec):
+    """Variant 2: ONE structured ``oneof:`` node for BOTH union kinds (owner-selected).
+
+    ``variants`` maps a label to a neutral type-EXPRESSION parsed by ``parse_neutral_type``
+    (e.g. ``"ref<Paragraph>"``, ``"string"``, ``"list<ref<X>>"``) - NOT a bare model name. When
+    ``discriminator`` is set (discriminated), every variant must resolve to a ``ref<Model>``
+    (pydantic discriminated unions need BaseModel arms); the loader enforces this fail-loud. When
+    ``discriminator`` is ``None`` (undiscriminated), variants may be any neutral type and the map
+    keys are documentation-only labels with no wire meaning.
+    """
+
+    variants: dict[str, str]
+    discriminator: str | None = None
+
+
 class FieldSpec(_Spec):
     """One neutral field of a model - mirrors a v2 ``fields:`` entry."""
 
     name: str
-    type: str
+    type: str | None = None  # sentinel None: absent when `oneof:` is used instead
     optional: bool = False
     default: str | None = None  # explicit spec default; None => let the TypeMapper decide
     alias: str | None = None
@@ -35,6 +51,7 @@ class FieldSpec(_Spec):
     enum: list[str] | None = None
     format: str | None = None
     deprecated: bool = False
+    oneof: OneOfSpec | None = None  # mutually exclusive with `type:`
 
 
 class ModelSpec(_Spec):
@@ -139,6 +156,16 @@ class ResourceSpec(_Spec):
     documentation: str | None = None
     models: list[ModelSpec] = Field(default_factory=list)
     operations: list[OperationSpec]
+
+
+# ------------------------------------------------------------------------ _models.yaml nodes
+
+
+class SharedModelsSpec(_Spec):
+    """Mirrors ``_models.yaml``: models shared across every resource.yaml in an API (the k8s
+    ``ObjectMeta`` anchor). Reuses the EXACT ``ModelSpec`` shape resource.yaml uses."""
+
+    models: list[ModelSpec] = Field(default_factory=list)
 
 
 # ------------------------------------------------------------------------- client.yaml nodes

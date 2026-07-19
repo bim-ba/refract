@@ -8,6 +8,7 @@ from refract.emitters.python import resolve
 from refract.emitters.python.docstrings import PythonDocstrings
 from refract.emitters.python.naming import PythonNaming
 from refract.emitters.python.types import PythonTypeMapper
+from refract.ir.types import UnionType
 from refract.spec import SpecError
 
 NAMING = PythonNaming()
@@ -77,6 +78,16 @@ def test_model_field_with_quoted_description_emits_parseable_source():
     assert 'description="The \\"primary\\" key of the priority."' in decl
 
 
+def test_model_field_required_no_description_omits_none_default():
+    """A required (non-optional) field with no description/alias renders `name: type` with NO
+    `= None`. `= None` would wrongly default a required field to None and mistype a non-None
+    annotation (e.g. `str = None`). Surfaced by the synthesized `Literal[tag]` discriminator field,
+    which is required and description-less."""
+    field = ir.Field(name="key", type=ir.ScalarType(scalar="string"))  # required, no desc/alias
+    decl, _imports = resolve._model_field(field, TYPE_MAPPER)
+    assert decl == "    key: str"  # NOT "    key: str = None"
+
+
 def test_model_field_with_alias_emits_field_alias():
     """`field.alias` must render `Field(alias=...)` even without a description."""
     field = ir.Field(name="type_", type=ir.ScalarType(scalar="string"), alias="type")
@@ -84,6 +95,109 @@ def test_model_field_with_alias_emits_field_alias():
     ast.parse(f"class M:\n{decl}\n")  # must not raise SyntaxError
     assert 'alias="type"' in decl
     assert "Field(" in decl
+
+
+def test_resolve_models_alias_only_field_imports_pydantic_field():
+    """V2 (coverage): a model whose only field carries an `alias` but NO description must still
+    import `pydantic.Field` at the MODULE level (`_base_model_imports`' `field.description or
+    field.alias` - the `alias` arm). The corpus has no aliased model field, so this arm was never
+    load-bearing; a regression drops the import and the emitted module `NameError`s on `Field`."""
+    model = ir.ObjectModel(
+        name="Widget",
+        fields=(ir.Field(name="type_", type=ir.ScalarType(scalar="string"), alias="type"),),
+    )
+    res = ir.Resource(
+        domain="tracker", resource="widgets", security="oauth_token", models=(model,), operations=()
+    )
+    page = resolve.resolve_models(res, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert any("import" in line and "Field" in line for line in page.import_lines)
+
+
+def test_int64_field_wraps_annotated_before_validator():
+    """A formatted scalar field wraps `Annotated[<base>, BeforeValidator(<coercer>)]` - independent
+    of the discriminator branch (format is scalar-only; a union is never a scalar, so the two
+    never co-occur on one field). A REQUIRED coerced field follows the same convention as any other
+    required field: NO `= None` (coercion does not change whether a field is required)."""
+    line, imports = resolve._model_field(
+        ir.Field(name="cores", type=ir.ScalarType(scalar="integer", format="int64")), TYPE_MAPPER
+    )
+    assert (
+        line == "    cores: Annotated[int, BeforeValidator(coerce_int64)]"
+    )  # required -> no = None
+    assert {("pydantic", "BeforeValidator"), ("typing", "Annotated")} <= {
+        (i.module, i.name) for i in imports
+    }
+
+
+def test_int64_optional_field_puts_none_outside_the_coercer_annotated():
+    """`render`'s optional wrap applies `| None` OUTSIDE the coerced base (`Annotated[int,
+    BeforeValidator(...)] | None`), not inside it - `_model_field` wraps whatever `rendered.text`
+    already is, it never re-derives the optional suffix itself."""
+    line, _imports = resolve._model_field(
+        ir.Field(name="cores", type=ir.ScalarType(scalar="integer", format="int64"), optional=True),
+        TYPE_MAPPER,
+    )
+    assert line == "    cores: Annotated[int, BeforeValidator(coerce_int64)] | None = None"
+
+
+def test_resolve_models_imports_coercer_from_shared_base_module():
+    """A coerced field pulls its coercer helper (hand-written in the shared base module, mirroring
+    the existing hand-written `APIModel` convention) alongside the `Annotated`/`BeforeValidator`
+    wiring - refract emits only the wiring, never the coercion logic itself."""
+    model = ir.ObjectModel(
+        name="Widget",
+        fields=(ir.Field(name="cores", type=ir.ScalarType(scalar="integer", format="int64")),),
+    )
+    res = ir.Resource(
+        domain="tracker", resource="widgets", security="oauth_token", models=(model,), operations=()
+    )
+    page = resolve.resolve_models(res, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert "from ycli.yandex.models import APIModel, coerce_int64" in page.import_lines
+
+
+_UNION = UnionType(
+    variants=(ir.RefType(target="Paragraph"), ir.RefType(target="Heading1Block")),
+    discriminator="type",
+)
+
+
+def test_discriminated_field_emits_single_annotated_field_call():
+    """A discriminated union field renders ONE `Annotated[A | B, Field(discriminator=...)]` -
+    never a bare union nor a `= Field(...)` default (pydantic requires the discriminator inside
+    `Annotated[...]`)."""
+    line, imports = resolve._model_field(ir.Field(name="block", type=_UNION), TYPE_MAPPER)
+    assert line == '    block: Annotated[Paragraph | Heading1Block, Field(discriminator="type")]'
+    assert {("typing", "Annotated"), ("pydantic", "Field")} <= {(i.module, i.name) for i in imports}
+
+
+def test_discriminated_field_with_description_merges_one_field_call():
+    """A discriminated field with a description merges INTO the same `Field(...)` call - never
+    two nested `Field(...)` calls on one annotation."""
+    line, _imports = resolve._model_field(
+        ir.Field(name="block", type=_UNION, description="A block."), TYPE_MAPPER
+    )
+    assert line == (
+        "    block: Annotated[Paragraph | Heading1Block, "
+        'Field(discriminator="type", description="A block.")]'
+    )
+    assert line.count("Field(") == 1  # not two nested Field(...) calls
+
+
+def test_discriminated_optional_field_carries_default_none():
+    """C3: an OPTIONAL discriminated-union field must carry ``default=None`` INSIDE its
+    ``Field(...)`` - without it pydantic treats ``Annotated[A | B | None, Field(discriminator=)]``
+    as REQUIRED (missing -> ValidationError). Also locks the `` | None`` placement: it lands INSIDE
+    the ``Annotated[...]`` (appended to the union text by ``PythonTypeMapper.render`` before
+    ``_model_field`` wraps it), unlike the coercer optional case where `` | None`` is stripped and
+    re-applied OUTSIDE. The pydantic omittable/discriminates behavior is proven in
+    tests/behavioral/test_discriminator_synthesis.py."""
+    line, _imports = resolve._model_field(
+        ir.Field(name="block", type=_UNION, optional=True), TYPE_MAPPER
+    )
+    assert line == (
+        "    block: Annotated[Paragraph | Heading1Block | None, "
+        'Field(discriminator="type", default=None)]'
+    )
 
 
 _STRING = ir.ScalarType(scalar="string")
@@ -102,6 +216,27 @@ def _shadowed_op() -> ir.Operation:
         ),
         response_model="Widget",
     )
+
+
+def test_request_function_query_param_uses_alias_as_wire_key():
+    """V1 (coverage): a query param whose wire alias differs from its Python name emits the ALIAS as
+    the query-dict KEY (`{"pageToken": page_token}`), not the Python name (`p.alias or p.name`). The
+    corpus only had `alias == name`, so this arm was never load-bearing; a regression would emit the
+    Python name as the wire key -> silently-wrong HTTP requests."""
+    op = ir.Operation(
+        name="list",
+        method="GET",
+        path="widgets",
+        operation_id="widgets_list",
+        params=(
+            ir.Param(
+                name="page_token", loc="query", type=_STRING, optional=True, alias="pageToken"
+            ),
+        ),
+        response_model="Widget",
+    )
+    text, _imports = resolve._request_function(op, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert 'query={"pageToken": page_token}' in text  # wire KEY is the alias, VALUE the Python name
 
 
 def test_request_function_guards_shadowed_path_and_query_identifiers():
@@ -216,8 +351,121 @@ def test_body_test_imports_skips_nested_ref_scan_for_non_object_model():
         domain="tracker", resource="things", security="oauth_token", models=(tags,), operations=()
     )
     models_module = "ycli.yandex.tracker.things.models"
-    imports = resolve._body_test_imports(res, ir.Body(model="Tags"), models_module)
+    imports = resolve._body_test_imports(
+        res, ir.Body(model="Tags"), models_module, "ycli.yandex.tracker.shared_models"
+    )
     assert imports == (Import(models_module, "Tags"),)
+
+
+# --- Task 11 (M1): `_referenced_model_names` recursive ref-walker ---
+
+
+def test_referenced_model_names_dangling_ref_raises_specerror():
+    """C4: a dangling ref reached by the body-model walk (`res.model` on an undeclared target) must
+    raise the friendly `SpecError`, not a bare `KeyError` - the project's fail-loud contract for a
+    malformed-but-plausible in-progress spec (a typo'd `ref<...>` in a tested write body)."""
+    from refract.ir.types import ListType, RefType
+
+    widget = ir.ObjectModel(
+        name="Widget", fields=(ir.Field(name="items", type=ListType(item=RefType(target="Nope"))),)
+    )
+    res = ir.Resource(domain="d", resource="r", security="t", models=(widget,), operations=())
+    with pytest.raises(SpecError, match="undeclared model 'Nope'"):
+        resolve._referenced_model_names(widget, res)
+
+
+def test_referenced_names_unwraps_list_of_ref():
+    from refract.ir.types import ListType, RefType
+
+    item = ir.ObjectModel(name="Item", fields=(ir.Field(name="v", type=RefType(target="Leaf")),))
+    leaf = ir.ObjectModel(name="Leaf")
+    widget = ir.ObjectModel(
+        name="Widget",
+        fields=(ir.Field(name="items", type=ListType(item=RefType(target="Item"))),),
+    )
+    res = ir.Resource(
+        domain="d", resource="r", security="t", models=(widget, item, leaf), operations=()
+    )
+    assert resolve._referenced_model_names(widget, res) == ("Item", "Leaf")  # recurses INTO Item
+
+
+def test_referenced_names_guards_a_cycle():
+    """An A -> B -> A structural cycle resolves without infinite recursion, each named once."""
+    from refract.ir.types import RefType
+
+    a = ir.ObjectModel(name="A", fields=(ir.Field(name="b", type=RefType(target="B")),))
+    b = ir.ObjectModel(name="B", fields=(ir.Field(name="a", type=RefType(target="A")),))
+    res = ir.Resource(domain="d", resource="r", security="t", models=(a, b), operations=())
+    assert resolve._referenced_model_names(a, res) == ("B", "A")  # each once; `seen` stops the loop
+
+
+def test_referenced_names_unwraps_map_key_and_value():
+    """A map's KEY and VALUE are both walked for refs (the MapType arm)."""
+    from refract.ir.types import MapType, RefType
+
+    k = ir.ObjectModel(name="K")
+    v = ir.ObjectModel(name="V")
+    widget = ir.ObjectModel(
+        name="Widget",
+        fields=(
+            ir.Field(
+                name="table", type=MapType(key=RefType(target="K"), value=RefType(target="V"))
+            ),
+        ),
+    )
+    res = ir.Resource(domain="d", resource="r", security="t", models=(widget, k, v), operations=())
+    assert resolve._referenced_model_names(widget, res) == ("K", "V")
+
+
+def test_referenced_names_unwraps_union_variants():
+    """A `oneof<A|B>` field unwraps EVERY variant (the UnionType arm), not just the first."""
+    from refract.ir.types import RefType, UnionType
+
+    a = ir.ObjectModel(name="A")
+    b = ir.ObjectModel(name="B")
+    widget = ir.ObjectModel(
+        name="Widget",
+        fields=(
+            ir.Field(
+                name="choice",
+                type=UnionType(variants=(RefType(target="A"), RefType(target="B"))),
+            ),
+        ),
+    )
+    res = ir.Resource(domain="d", resource="r", security="t", models=(widget, a, b), operations=())
+    assert resolve._referenced_model_names(widget, res) == ("A", "B")
+
+
+def test_referenced_names_stops_at_non_object_ref_target():
+    """A ref target that resolves to a ``RootListModel`` (no ``.fields``) is listed but not
+    expanded further."""
+    from refract.ir.types import RefType
+
+    tags = ir.RootListModel(name="Tags", item="str")
+    widget = ir.ObjectModel(
+        name="Widget", fields=(ir.Field(name="tags", type=RefType(target="Tags")),)
+    )
+    res = ir.Resource(domain="d", resource="r", security="t", models=(widget, tags), operations=())
+    assert resolve._referenced_model_names(widget, res) == ("Tags",)
+
+
+def test_body_test_imports_includes_nested_list_ref():
+    """A body model with a `list<ref<Item>>` field -> `_body_test_imports` now includes Item
+    (today only a DIRECT `ref<...>` field is imported)."""
+    from refract.ir.types import ListType, RefType
+
+    item = ir.ObjectModel(name="Item")
+    widget = ir.ObjectModel(
+        name="Widget",
+        fields=(ir.Field(name="items", type=ListType(item=RefType(target="Item"))),),
+    )
+    res = ir.Resource(domain="d", resource="r", security="t", models=(widget, item), operations=())
+    module = "ycli.yandex.d.r.models"
+    imports = resolve._body_test_imports(
+        res, ir.Body(model="Widget"), module, "ycli.yandex.d.shared_models"
+    )
+    assert Import(module, "Item") in imports
+    assert Import(module, "Widget") in imports
 
 
 def test_resolve_tests_cli_only_op_drops_client_surface():

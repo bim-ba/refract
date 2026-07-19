@@ -1,7 +1,10 @@
 from pathlib import Path
 
-from refract.generation import Generator
-from refract.spec import SpecLoader
+import pytest
+
+from refract.generation import Generator, _attach_shared
+from refract.ir import ObjectModel, Resource
+from refract.spec import SpecError, SpecLoader
 
 _EX = Path(__file__).resolve().parent.parent / "examples" / "ycli-tracker"
 
@@ -75,3 +78,144 @@ def test_check_detects_drift(tmp_path):
     g.write(the_plan)
     next(iter(the_plan)).write_text("corrupted", encoding="utf-8")
     assert g.check(the_plan) == 1
+
+
+def test_attach_shared_rejects_name_collision():
+    res = Resource(
+        domain="k8s",
+        resource="pods",
+        security="tok",
+        models=(ObjectModel(name="ObjectMeta"),),
+        operations=(),
+    )
+    with pytest.raises(SpecError, match=r"defined both locally and in _models\.yaml"):
+        _attach_shared(res, (ObjectModel(name="ObjectMeta"),))
+
+
+def test_attach_shared_rejects_shared_model_as_response_model():
+    """C2 (fail-loud): a shared model used DIRECTLY as an op's response model would be imported from
+    the resource's LOCAL `.models` by requests/client/mcp/tests and dangle - reject at plan time."""
+    from refract.ir import Operation
+
+    res = Resource(
+        domain="k8s",
+        resource="pods",
+        security="tok",
+        models=(),
+        operations=(
+            Operation(
+                name="get",
+                method="GET",
+                path="p",
+                operation_id="pods_get",
+                response_model="ObjectMeta",
+            ),
+        ),
+    )
+    with pytest.raises(SpecError, match="response model"):
+        _attach_shared(res, (ObjectModel(name="ObjectMeta"),))
+
+
+def test_attach_shared_rejects_shared_model_as_request_body():
+    """C2 (fail-loud): a shared model used DIRECTLY as an op's request body dangles the same way."""
+    from refract.ir import Body, Operation
+
+    res = Resource(
+        domain="k8s",
+        resource="pods",
+        security="tok",
+        models=(),
+        operations=(
+            Operation(
+                name="put",
+                method="PUT",
+                path="p",
+                operation_id="pods_put",
+                body=Body(model="ObjectMeta"),
+                response_model=None,
+            ),
+        ),
+    )
+    with pytest.raises(SpecError, match="request body"):
+        _attach_shared(res, (ObjectModel(name="ObjectMeta"),))
+
+
+def test_plan_threads_shared_models_end_to_end(tmp_path):
+    """`_models.yaml` PRESENT, driven through the REAL entry point (`Generator.plan`), not
+    `SpecLoader.load_shared_models` called directly.
+
+    `ObjectMeta` is declared ONLY in `_models.yaml` - never in `widgets/resource.yaml`'s own
+    `models:`. The `create` op's write body (`WidgetCreate`) carries a `ref<ObjectMeta>` field, so
+    the CLI assembler's one-level ref walk (`resolve/cli.py::_assembled_options`) must call
+    `res.model("ObjectMeta")`, which only resolves via `res.shared_models` - i.e. only if
+    `find_shared_models` located the file AND `Generator.plan` threaded it through
+    `SpecLoader.load_shared_models` + `_attach_shared`. If either step is skipped, `res.model(...)`
+    raises `KeyError` and `plan()` blows up before this test can even assert.
+    """
+    (tmp_path / "client.yaml").write_text(
+        "name: demo\n"
+        "server:\n"
+        "  base_url: https://api.example.com\n"
+        "default_headers: {}\n"
+        "auth:\n"
+        "  tok:\n"
+        "    kind: header\n"
+        "    header: Authorization\n"
+        '    template: "Bearer {token}"\n'
+        "    inputs:\n"
+        "      token: {env: DEMO_TOKEN}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "_models.yaml").write_text(
+        "models:\n"
+        "  - name: ObjectMeta\n"
+        "    fields:\n"
+        "      - {name: name, type: string, optional: true}\n",
+        encoding="utf-8",
+    )
+    resource_dir = tmp_path / "demo" / "widgets"
+    resource_dir.mkdir(parents=True)
+    (resource_dir / "resource.yaml").write_text(
+        "domain: demo\n"
+        "resource: widgets\n"
+        "security: tok\n"
+        "models:\n"
+        "  - name: Widget\n"
+        "    fields:\n"
+        "      - {name: key, type: string, optional: true}\n"
+        "  - name: WidgetCreate\n"
+        "    fields:\n"
+        '      - {name: key, type: string, description: "Key of the new widget."}\n'
+        '      - {name: metadata, type: "ref<ObjectMeta>", description: "Shared metadata."}\n'
+        "operations:\n"
+        "  - name: create\n"
+        "    method: POST\n"
+        "    path: widgets/\n"
+        "    operationId: widgets_create\n"
+        "    body: {strategy: TypedModel, model: WidgetCreate, "
+        'dump: "by_alias=True, exclude_none=True"}\n'
+        "    responses:\n"
+        "      200: {model: Widget}\n"
+        "    mcp:\n"
+        "      name: widgets_create\n"
+        "      safety: WRITE\n"
+        '      title: "Create widget"\n'
+        '      documentation: "Create a widget."\n'
+        "    cli:\n"
+        "      name: create\n"
+        '      documentation: "Create a widget from a key and metadata name."\n',
+        encoding="utf-8",
+    )
+
+    the_plan = Generator.for_language("python").plan(tmp_path, tmp_path / "out")
+
+    cli_source = the_plan[tmp_path / "out" / "demo" / "widgets" / "cli.py"]
+    assert "metadata=ObjectMeta(name=metadata_name)" in cli_source
+    # C2 (case-3): the cli-flattened shared ref target must import from the per-domain shared module
+    # (where ObjectMeta actually lives), NOT the resource's local models module - the latter would
+    # dangle at import time. `_remap_to_resource_models` absolutizes it like every other cli model
+    # import (`ycli.yandex.demo.shared_models`). The reassembly expr alone did not catch this.
+    assert "from ycli.yandex.demo.shared_models import ObjectMeta" in cli_source
+    assert (
+        "import ObjectMeta" in cli_source and "widgets.models import ObjectMeta" not in cli_source
+    )

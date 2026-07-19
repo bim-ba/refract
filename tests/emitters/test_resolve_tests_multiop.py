@@ -72,6 +72,36 @@ def parts() -> tuple[PythonNaming, PythonTypeMapper, PythonDocstrings]:
     return PythonNaming(), PythonTypeMapper(), PythonDocstrings()
 
 
+def test_resolve_tests_client_op_without_response_model_omits_none_import(ctx, parts):
+    """V4 (coverage): a CLIENT-tested op with NO response_model (e.g. a 204) must NOT emit
+    `Import(module, None)` -> `from module import None`. Every client-tested corpus op carried a
+    response model, so resolve/tests' `op.response_model` truthiness guard was never driven."""
+    case = ir.TestCase(
+        name="remove_client",
+        kind=ir.TestKind.CLIENT,
+        http_method="DELETE",
+        path="widgets/remove",
+        status=204,
+        response_json=None,
+        has_json=False,
+        asserts=["res is None"],
+        call='WidgetClient(token="t").widgets.remove()',
+    )
+    op = ir.Operation(
+        name="remove",
+        method="DELETE",
+        path="widgets/remove",
+        operation_id="widgets_remove",
+        response_model=None,
+        tests=(case,),
+    )
+    res = ir.Resource(
+        domain="widget", resource="widgets", security="token", models=(), operations=(op,)
+    )
+    page = resolve_tests(res, ctx, *parts)
+    assert "import None" not in "\n".join(page.import_lines)
+
+
 def test_resolve_tests_renders_all_tests_bearing_ops(two_op_tested_resource, ctx, parts):
     page = resolve_tests(two_op_tested_resource, ctx, *parts)
     names = list(page.tests)
@@ -117,6 +147,13 @@ def write_op_resource() -> ir.Resource:
             ir.ObjectModel(
                 name="WidgetCreate",
                 fields=(ir.Field(name="name", type=ir.RefType(target="WidgetName")),),
+            ),
+            # a declared target: `_referenced_model_names` resolves every RefType via
+            # `res.model(...)` (fail-loud on a dangling ref), so the nested ref's target must be
+            # a real model, not merely assumed from the fixture's literal `call` string.
+            ir.ObjectModel(
+                name="WidgetName",
+                fields=(ir.Field(name="en", type=ir.ScalarType(scalar="string")),),
             ),
         ),
         operations=(_write_op_with_nested_body(),),

@@ -98,6 +98,18 @@ def test_assembled_options_flatten_one_level_ref():
     assert (".models", "LocalizedName") in modules  # nested ref target
 
 
+def test_assembled_options_dangling_ref_raises_specerror_not_keyerror():
+    """F7: a body field with a direct one-level `ref<Undeclared>` must raise the friendly
+    `SpecError` (via `require_model`), NOT the bare `KeyError` `res.model` used to leak - the same
+    fail-loud contract C4 applied to the walker, now uniform across the cli body-flatten path."""
+    model = ir.ObjectModel(
+        name="Create", fields=(ir.Field(name="meta", type=ir.RefType(target="Nope")),)
+    )
+    res = _single_body_resource(model)
+    with pytest.raises(SpecError, match="undeclared model 'Nope'"):
+        resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
+
+
 def test_assembled_options_rejects_map_body():
     labels = ir.MapType(key=_STRING, value=_STRING)
     model = ir.ObjectModel(name="Bulk", fields=(ir.Field(name="labels", type=labels),))
@@ -130,6 +142,26 @@ def test_assembled_options_rejects_two_level_ref():
             ),
         ),
     )
+    with pytest.raises(SpecError, match="not yet implemented"):
+        resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
+
+
+def test_assembled_options_rejects_unsupported_shape_before_resolving_dangling_nested_ref():
+    """An unsupported-shape body field (here a `map<string, ref<Undeclared>>`) that ALSO contains a
+    dangling (undeclared) nested ref must still report the friendly `handler:` SpecError, NOT leak a
+    bare `KeyError` from `res.model`. The flatten-or-reject decision runs per-field BEFORE any
+    transitive ref resolution, so a malformed in-progress spec degrades gracefully. (Regression: an
+    eager `_referenced_model_names` walk over the whole body model resolved the dangling ref first
+    and raised `KeyError` before the reject arm was reached.)"""
+    model = ir.ObjectModel(
+        name="Bulk",
+        fields=(
+            ir.Field(
+                name="items", type=ir.MapType(key=_STRING, value=ir.RefType(target="Undeclared"))
+            ),
+        ),
+    )
+    res = _single_body_resource(model)  # `Undeclared` is intentionally NOT declared
     with pytest.raises(SpecError, match="not yet implemented"):
         resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
 
@@ -268,6 +300,32 @@ def test_cli_page_remaps_model_imports_to_absolute():
         in page.import_lines
     )
     assert all(not line.startswith("from .models") for line in page.import_lines)
+
+
+def test_cli_page_remap_passes_through_non_models_import():
+    """N1: `_remap_to_resource_models` only rewrites ``.models`` imports; a non-``.models`` import
+    (here a body field of scalar type ``any``, which lowers to ``typing.Any`` and pulls
+    ``Import("typing", "Any")``) must survive the remap untouched, not get dropped or rewritten."""
+    model = ir.ObjectModel(
+        name="Widget", fields=(ir.Field(name="payload", type=ir.ScalarType(scalar="any")),)
+    )
+    op = ir.Operation(
+        name="create",
+        method="POST",
+        path="widgets",
+        operation_id="widgets_create",
+        body=ir.Body(model="Widget"),
+        cli=ir.CliMeta(name="create", documentation="Create a widget."),
+    )
+    res = ir.Resource(
+        domain="tracker",
+        resource="widgets",
+        security="oauth_token",
+        models=(model,),
+        operations=(op,),
+    )
+    page = resolve.resolve_cli(res, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    assert "from typing import Any" in page.import_lines
 
 
 def test_cli_command_write_op_threads_path_and_query_params():

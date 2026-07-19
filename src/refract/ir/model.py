@@ -143,9 +143,16 @@ class Resource(_IR):
     operations: tuple[Operation, ...]
     documentation: str | None = None
     module_docs: ModuleDocs = ModuleDocs()
+    shared_models: tuple[Model, ...] = ()  # from _models.yaml; attached by Generator.plan
 
     def model(self, name: str) -> Model:
+        """Local-first lookup: a name in `models` wins; a name only in `shared_models` falls
+        back. A name in BOTH is rejected eagerly at plan time (`generation._attach_shared`), so
+        this never has to arbitrate a collision."""
         for candidate in self.models:
+            if candidate.name == name:
+                return candidate
+        for candidate in self.shared_models:
             if candidate.name == name:
                 return candidate
         raise KeyError(name)
