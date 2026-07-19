@@ -105,6 +105,17 @@ def _shared_models_module(ctx: EmitContext) -> str:
     return f"{ctx.package_root.rsplit('.', 1)[0]}.models"
 
 
+def require_model(res: ir.Resource, name: str) -> ir.Model:
+    """``res.model`` with the project's fail-loud contract: a dangling ref (an undeclared target) is
+    reported as a friendly ``SpecError``, not the bare ``KeyError`` ``res.model`` raises. Every
+    emitter site resolving a model NAME to its definition goes through here so the malformed-spec
+    message is uniform across surfaces (the recursive walker, cli body-flatten, test imports)."""
+    try:
+        return res.model(name)
+    except KeyError as error:
+        raise SpecError(f"{res.resource}: reference to undeclared model {name!r}") from error
+
+
 def _type_ref_targets(neutral: ir.NeutralType) -> tuple[str, ...]:
     """The model names a rendered type NAMES via RefType, unwrapping list/map/union at any depth.
 
@@ -180,12 +191,9 @@ def _walk_type(
             if target in seen:  # cycle guard - already discovered up this walk
                 return (), seen
             seen = seen | {target}
-            try:
-                resolved = res.model(target)
-            except KeyError as error:
-                raise SpecError(
-                    f"{res.resource}: reference to undeclared model {target!r}"
-                ) from error
+            resolved = require_model(
+                res, target
+            )  # dangling ref -> friendly SpecError, not KeyError
             if isinstance(resolved, ObjectModel):
                 nested, seen = _walk_model(resolved, res, seen)
             else:

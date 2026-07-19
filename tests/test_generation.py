@@ -211,8 +211,11 @@ def test_plan_threads_shared_models_end_to_end(tmp_path):
 
     cli_source = the_plan[tmp_path / "out" / "demo" / "widgets" / "cli.py"]
     assert "metadata=ObjectMeta(name=metadata_name)" in cli_source
-    # C2 (case-3): the cli-flattened shared ref target must import from the per-domain
-    # `..shared_models` (where ObjectMeta actually lives), NOT the resource's local `.models` - the
-    # latter would dangle at import time. The reassembly expr above alone did not catch this.
-    assert "from ..shared_models import ObjectMeta" in cli_source
-    assert "from .models import ObjectMeta" not in cli_source
+    # C2 (case-3): the cli-flattened shared ref target must import from the per-domain shared module
+    # (where ObjectMeta actually lives), NOT the resource's local models module - the latter would
+    # dangle at import time. `_remap_to_resource_models` absolutizes it like every other cli model
+    # import (`ycli.yandex.demo.shared_models`). The reassembly expr alone did not catch this.
+    assert "from ycli.yandex.demo.shared_models import ObjectMeta" in cli_source
+    assert (
+        "import ObjectMeta" in cli_source and "widgets.models import ObjectMeta" not in cli_source
+    )

@@ -7,6 +7,7 @@ from refract.emitters.python.resolve._common import (
     param_decl,
     py_str,
     render_imports,
+    require_model,
 )
 from refract.emitters.python.views import CliPageView
 from refract.ir import ListType, LiteralType, MapType, ObjectModel, RefType, ScalarType, UnionType
@@ -22,18 +23,23 @@ _GROUP_DOC = "Group anchor - forces subcommand dispatch (no eager DI, so --help 
 def _remap_to_resource_models(
     ctx: EmitContext, res: ir.Resource, imports: list[Import]
 ) -> list[Import]:
-    """Rewrite each ``.models`` relative import to the resource's ABSOLUTE models module.
+    """Rewrite each RELATIVE model import (``.models``, ``..shared_models``) to its ABSOLUTE module.
 
-    ``_assembled_options`` mirrors requests/client with ``Import(".models", X)``, but inside the
-    generated cli package (``ycli.cli``) ``.models`` resolves to ``ycli.cli.models`` - wrong. The
-    absolute target is the same one ``resolve_mcp`` uses: ``<package_root>.<resource>.models``.
-    Non-``.models`` imports (path/query scalar types) pass through untouched.
+    ``_assembled_options`` mirrors requests/client with ``Import(".models", X)`` (and
+    ``Import("..shared_models", X)`` for a shared ref target), but inside the generated cli package
+    (``ycli.cli``) those relatives resolve wrong. The absolute targets are the ones ``resolve_mcp``
+    uses: ``<package_root>.<resource>.models`` and ``<package_root>.shared_models``. Both relative
+    model imports get the SAME absolutization; non-model imports (path/query scalar types) pass
+    through untouched.
     """
     models_module = f"{ctx.package_root}.{res.resource}.models"
+    shared_module = f"{ctx.package_root}.shared_models"
     remapped: list[Import] = []
     for imp in imports:
         if imp.module == ".models":
             remapped.append(Import(models_module, imp.name))
+        elif imp.module == "..shared_models":
+            remapped.append(Import(shared_module, imp.name))
         else:
             remapped.append(imp)
     return remapped
@@ -258,12 +264,12 @@ def _assembled_options(
     body = op.body
     if body is None:  # write-op only; a bodyless op reaching here is a wiring bug - fail loud
         raise ValueError(f"{op.name}: assembled options require a write body")
-    model = _require_object_model(op, res.model(body.model))
+    model = _require_object_model(op, require_model(res, body.model))
     # Imports open with the body model (the reassembly ctor); each accepted one-level ref target is
     # appended at the point of acceptance below - NOT via an eager `_referenced_model_names` walk,
-    # which would resolve refs inside a shape the per-field loop is about to REJECT and leak a bare
-    # KeyError (from `res.model` on a dangling nested ref) instead of the friendly `handler:`
-    # SpecError. On the accepted path (scalar + one-level ref) that walk finds nothing beyond these
+    # which would resolve refs inside a shape the per-field loop is about to REJECT (reporting a
+    # dangling nested ref before the friendly `handler:` SpecError for the unsupported shape). On
+    # the accepted path (scalar + one-level ref) that walk finds nothing beyond these
     # targets anyway. `.models` mirrors requests/client; a target that is a SHARED model lives in
     # the per-domain `..shared_models` instead (body.model itself is never shared - that is rejected
     # at plan time - so it always imports from `.models`).
@@ -282,7 +288,7 @@ def _assembled_options(
                 imports += decl_imports
                 reassembly.append(f"{field.name}={option_name}")  # KWARG=field name; VALUE=guarded
             case RefType(target=target):
-                nested = _require_object_model(op, res.model(target))
+                nested = _require_object_model(op, require_model(res, target))
                 inner: list[str] = []
                 for child in nested.fields:
                     match child.type:

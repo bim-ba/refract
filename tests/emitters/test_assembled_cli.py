@@ -98,6 +98,18 @@ def test_assembled_options_flatten_one_level_ref():
     assert (".models", "LocalizedName") in modules  # nested ref target
 
 
+def test_assembled_options_dangling_ref_raises_specerror_not_keyerror():
+    """F7: a body field with a direct one-level `ref<Undeclared>` must raise the friendly
+    `SpecError` (via `require_model`), NOT the bare `KeyError` `res.model` used to leak - the same
+    fail-loud contract C4 applied to the walker, now uniform across the cli body-flatten path."""
+    model = ir.ObjectModel(
+        name="Create", fields=(ir.Field(name="meta", type=ir.RefType(target="Nope")),)
+    )
+    res = _single_body_resource(model)
+    with pytest.raises(SpecError, match="undeclared model 'Nope'"):
+        resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
+
+
 def test_assembled_options_rejects_map_body():
     labels = ir.MapType(key=_STRING, value=_STRING)
     model = ir.ObjectModel(name="Bulk", fields=(ir.Field(name="labels", type=labels),))

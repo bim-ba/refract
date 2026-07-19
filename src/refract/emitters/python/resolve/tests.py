@@ -3,7 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, assert_never
 
 from refract.emitters.api import Import
-from refract.emitters.python.resolve._common import _referenced_model_names, render_imports
+from refract.emitters.python.resolve._common import (
+    _referenced_model_names,
+    render_imports,
+    require_model,
+)
 from refract.emitters.python.views import TestsPageView
 from refract.ir import ObjectModel, TestKind
 
@@ -50,7 +54,7 @@ def _body_test_imports(
     the resource's local ``models_module``. ``body.model`` itself is never shared - a shared model
     as a body is rejected at plan time - so it always imports from ``models_module``.
     """
-    model = res.model(body.model)
+    model = require_model(res, body.model)  # dangling body ref -> friendly SpecError, not KeyError
     imports = [Import(models_module, body.model)]
     if isinstance(model, ObjectModel):
         shared_names = {shared.name for shared in res.shared_models}
