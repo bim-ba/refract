@@ -5,6 +5,7 @@ from collections import defaultdict
 from typing import TYPE_CHECKING, assert_never
 
 from refract.ir import ListType, LiteralType, MapType, ObjectModel, RefType, ScalarType, UnionType
+from refract.spec import SpecError
 
 if TYPE_CHECKING:
     from refract import ir
@@ -170,15 +171,21 @@ def _walk_type(
     ScalarType/LiteralType are terminal (carry no ref). List/Map/Union unwrap into their nested
     type(s) at any depth. A RefType resolves via ``res.model`` (shared-aware post-Task-9) and, for
     an ObjectModel target, recurses into ITS fields; a RootListModel target carries no `.fields` to
-    recurse into, so its name is listed but not expanded. A dangling ref (an undeclared target)
-    raises `KeyError` straight out of ``res.model`` - fail-loud, never swallowed.
+    recurse into, so its name is listed but not expanded. A dangling ref (an undeclared target) is
+    reported as a friendly ``SpecError`` (the project's fail-loud contract for malformed spec), not
+    the bare ``KeyError`` ``res.model`` raises.
     """
     match neutral:
         case RefType(target=target):
             if target in seen:  # cycle guard - already discovered up this walk
                 return (), seen
             seen = seen | {target}
-            resolved = res.model(target)
+            try:
+                resolved = res.model(target)
+            except KeyError as error:
+                raise SpecError(
+                    f"{res.resource}: reference to undeclared model {target!r}"
+                ) from error
             if isinstance(resolved, ObjectModel):
                 nested, seen = _walk_model(resolved, res, seen)
             else:

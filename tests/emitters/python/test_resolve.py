@@ -323,6 +323,20 @@ def test_body_test_imports_skips_nested_ref_scan_for_non_object_model():
 # --- Task 11 (M1): `_referenced_model_names` recursive ref-walker ---
 
 
+def test_referenced_model_names_dangling_ref_raises_specerror():
+    """C4: a dangling ref reached by the body-model walk (`res.model` on an undeclared target) must
+    raise the friendly `SpecError`, not a bare `KeyError` - the project's fail-loud contract for a
+    malformed-but-plausible in-progress spec (a typo'd `ref<...>` in a tested write body)."""
+    from refract.ir.types import ListType, RefType
+
+    widget = ir.ObjectModel(
+        name="Widget", fields=(ir.Field(name="items", type=ListType(item=RefType(target="Nope"))),)
+    )
+    res = ir.Resource(domain="d", resource="r", security="t", models=(widget,), operations=())
+    with pytest.raises(SpecError, match="undeclared model 'Nope'"):
+        resolve._referenced_model_names(widget, res)
+
+
 def test_referenced_names_unwraps_list_of_ref():
     from refract.ir.types import ListType, RefType
 
