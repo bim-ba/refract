@@ -61,6 +61,17 @@ class UnionType(_Node):
             raise ValueError("a union needs >= 2 variants")
         return self
 
+    @model_validator(mode="after")
+    def _discriminated_variants_are_refs(self) -> UnionType:
+        # A discriminated union needs BaseModel arms - every variant must be a `ref<Model>`.
+        # Enforced on the TYPE (not only the spec loader) so any IR producer building the illegal
+        # combo fails loud at construction, not at generated-code import time. Undiscriminated mix.
+        if self.discriminator is not None and any(
+            not isinstance(variant, RefType) for variant in self.variants
+        ):
+            raise ValueError("a discriminated union's variants must all be ref<Model>")
+        return self
+
 
 class LiteralType(_Node):
     """A single-value ``Literal[<value>]`` - the loader synthesizes this onto a discriminated-

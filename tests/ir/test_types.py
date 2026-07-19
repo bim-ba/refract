@@ -84,6 +84,22 @@ def test_union_type_requires_at_least_two_variants():
         UnionType(variants=(ScalarType(scalar="string"),))
 
 
+def test_discriminated_union_variants_must_all_be_refs():
+    """A1: a DISCRIMINATED union whose variants are not all `ref<Model>` is an illegal state that
+    pydantic cannot honor (a discriminated union needs BaseModel arms). The IR TYPE rejects it at
+    construction - not only the spec loader - so a second IR producer (an OpenAPI importer) cannot
+    build the illegal combo and detonate at generated-code import time far from the cause."""
+    with pytest.raises(ValidationError):
+        UnionType(variants=(ScalarType(scalar="string"), RefType(target="X")), discriminator="kind")
+
+
+def test_undiscriminated_union_may_mix_non_ref_variants():
+    """The invariant is scoped to DISCRIMINATED unions: an undiscriminated union still mixes any
+    type-exprs (a scalar + a ref), so this must NOT raise."""
+    union = UnionType(variants=(ScalarType(scalar="string"), RefType(target="X")))
+    assert union.discriminator is None
+
+
 def test_literal_type_round_trips():
     lit = LiteralType(value="heading_1")
     assert LiteralType.model_validate(lit.model_dump()) == lit
