@@ -5,11 +5,12 @@ from typing import TYPE_CHECKING, assert_never
 from refract.emitters.api import Import
 from refract.emitters.python.resolve._common import (
     _shared_models_module,
+    _type_ref_targets,
     py_str,
     render_imports,
 )
 from refract.emitters.python.views import ModelsPageView
-from refract.ir import ObjectModel, RefType, RootListModel
+from refract.ir import ObjectModel, RootListModel
 
 if TYPE_CHECKING:
     from refract import ir
@@ -151,19 +152,24 @@ def _model_classes(
 def _shared_ref_imports(
     models: tuple[ir.Model, ...], shared_names: set[str], ctx: EmitContext
 ) -> list[Import]:
-    """One-level ref scan: a field whose ``ref<Target>`` names a SHARED model (membership in
-    ``shared_names``, i.e. ``res.shared_models``) needs a cross-file import from
-    ``{ctx.package_root}.shared_models`` - a same-file LOCAL ref (target only in ``res.models``)
-    needs none, since local models all live in the same ``models.py``. A one-level scan suffices
-    for the embedded-field anchor (e.g. ``ObjectMeta`` on a k8s object); a nested ref (list/map of
-    refs, or a ref two levels down) is Task 11's recursive walker to adopt, rule-of-three."""
+    """A field whose rendered type NAMES a SHARED model (membership in ``shared_names``, i.e.
+    ``res.shared_models``) needs a cross-file import from ``{ctx.package_root}.shared_models`` - a
+    same-file LOCAL ref (target only in ``res.models``) needs none, since local models all live in
+    the same ``models.py``. ``_type_ref_targets`` unwraps list/map/union at any depth, so a shared
+    ref nested in a container - the k8s ``PodList{items: list<ref<ObjectMeta>>}`` shape - is
+    imported too, not only a direct ``ref<Shared>`` field (the prior one-level scan missed the
+    nested case and emitted an unimportable ``models.py``)."""
+    module = f"{ctx.package_root}.shared_models"
     imports: list[Import] = []
+    seen: set[str] = set()
     for model in models:
         if not isinstance(model, ObjectModel):
             continue
         for field in model.fields:
-            if isinstance(field.type, RefType) and field.type.target in shared_names:
-                imports.append(Import(f"{ctx.package_root}.shared_models", field.type.target))
+            for target in _type_ref_targets(field.type):
+                if target in shared_names and target not in seen:
+                    seen.add(target)
+                    imports.append(Import(module, target))
     return imports
 
 

@@ -104,6 +104,33 @@ def _shared_models_module(ctx: EmitContext) -> str:
     return f"{ctx.package_root.rsplit('.', 1)[0]}.models"
 
 
+def _type_ref_targets(neutral: ir.NeutralType) -> tuple[str, ...]:
+    """The model names a rendered type NAMES via RefType, unwrapping list/map/union at any depth.
+
+    Unlike `_referenced_model_names`, this does NOT recurse into a referenced model's own fields - a
+    type annotation names only its own top-level targets; a referenced model's internals live in
+    that model's own module. So `ref<A>` -> ('A',), `list<ref<A>>` -> ('A',),
+    `map<ref<K>, ref<V>>` -> ('K', 'V'), `oneof<ref<A>|ref<B>>` -> ('A', 'B'). Used for the
+    same-file-vs-shared import decision (a field's rendered type must import every model it names).
+    """
+    match neutral:
+        case RefType(target=target):
+            return (target,)
+        case ListType(item=item):
+            return _type_ref_targets(item)
+        case MapType(key=key, value=value):
+            return (*_type_ref_targets(key), *_type_ref_targets(value))
+        case UnionType(variants=variants):
+            names: tuple[str, ...] = ()
+            for variant in variants:
+                names += _type_ref_targets(variant)
+            return names
+        case ScalarType() | LiteralType():
+            return ()
+        case _:
+            assert_never(neutral)
+
+
 def _referenced_model_names(model: ObjectModel, res: ir.Resource) -> tuple[str, ...]:
     """Every model name transitively reachable from `model`'s fields via RefType - unwraps
     ListType/MapType/UnionType at any depth, recurses into each referenced ObjectModel's own

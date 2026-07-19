@@ -56,3 +56,55 @@ def test_resource_referencing_shared_model_imports_from_shared_module():
     ctx = EmitContext(package_root="ycli.yandex.k8s")
     page = resolve_models(res, ctx, PythonNaming(), PythonTypeMapper(), PythonDocstrings())
     assert "from ycli.yandex.k8s.shared_models import ObjectMeta" in page.import_lines
+
+
+def test_resource_referencing_shared_model_in_container_imports_from_shared_module():
+    """C1 regression: a shared ref WRAPPED in a list/map/union (not a direct field) must STILL be
+    imported from the shared module. `items: list<ref<ObjectMeta>>` renders `list[ObjectMeta]`;
+    the one-level `isinstance(field.type, RefType)` scan missed it, so the generated models.py named
+    ObjectMeta with no import -> not importable (PydanticUndefinedAnnotation). The k8s `PodList`
+    shape is exactly Task 10's motivating case."""
+    from refract.emitters.api import EmitContext
+    from refract.emitters.python.docstrings import PythonDocstrings
+    from refract.emitters.python.naming import PythonNaming
+    from refract.emitters.python.resolve import resolve_models
+    from refract.emitters.python.types import PythonTypeMapper
+    from refract.ir import Field, ObjectModel, Resource
+    from refract.ir.types import ListType, RefType
+
+    meta = ObjectModel(name="ObjectMeta")
+    pod_list = ObjectModel(
+        name="PodList",
+        fields=(Field(name="items", type=ListType(item=RefType(target="ObjectMeta"))),),
+    )
+    res = Resource(
+        domain="k8s",
+        resource="pods",
+        security="tok",
+        models=(pod_list,),
+        operations=(),
+        shared_models=(meta,),
+    )
+    ctx = EmitContext(package_root="ycli.yandex.k8s")
+    page = resolve_models(res, ctx, PythonNaming(), PythonTypeMapper(), PythonDocstrings())
+    assert "from ycli.yandex.k8s.shared_models import ObjectMeta" in page.import_lines
+
+
+def test_type_ref_targets_unwraps_containers_without_recursing_into_models():
+    """`_type_ref_targets` names a type's OWN top-level ref targets, unwrapping list/map/union at
+    any depth, but never recurses into a referenced model - that keeps `_shared_ref_imports` from
+    over-importing a shared model's own internal refs into a consuming resource's models.py."""
+    from refract.emitters.python.resolve._common import _type_ref_targets
+    from refract.ir.types import ListType, LiteralType, MapType, RefType, ScalarType, UnionType
+
+    assert _type_ref_targets(RefType(target="A")) == ("A",)
+    assert _type_ref_targets(ListType(item=RefType(target="A"))) == ("A",)
+    assert _type_ref_targets(
+        MapType(key=ScalarType(scalar="string"), value=RefType(target="V"))
+    ) == ("V",)
+    assert _type_ref_targets(UnionType(variants=(RefType(target="A"), RefType(target="B")))) == (
+        "A",
+        "B",
+    )
+    assert _type_ref_targets(ScalarType(scalar="string")) == ()
+    assert _type_ref_targets(LiteralType(value="x")) == ()
