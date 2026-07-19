@@ -103,3 +103,75 @@ def test_generated_block_union_discriminates_on_synthesized_tag(tmp_path, monkey
     finally:
         for name in ("blockpkg.notion.models", "blockpkg.notion", "blockpkg.models", "blockpkg"):
             sys.modules.pop(name, None)
+
+
+_OPTIONAL_UNION_YAML = """
+domain: notion
+resource: pages
+security: tok
+models:
+  - name: Paragraph
+    fields:
+      - {name: text, type: string, optional: true}
+  - name: Heading1Block
+    fields:
+      - {name: text, type: string, optional: true}
+  - name: Page
+    fields:
+      - name: cover
+        optional: true
+        oneof:
+          discriminator: type
+          variants:
+            paragraph: "ref<Paragraph>"
+            heading_1: "ref<Heading1Block>"
+operations:
+  - name: get
+    method: GET
+    path: pages
+    operationId: pages_get
+    responses:
+      200: {model: Page}
+    mcp:
+      name: pages_get
+      safety: RO
+      title: Get
+      documentation: Get a page.
+"""
+
+
+def test_generated_optional_discriminated_union_is_omittable_and_discriminates(
+    tmp_path, monkeypatch
+):
+    """C3: an `optional: true` discriminated-union field must be OMITTABLE (pydantic default None),
+    not required. The prior emit dropped `default=` for any discriminated field, so pydantic treated
+    the optional union as REQUIRED (missing -> ValidationError). It must now render
+    `Field(discriminator="type", default=None)` and pydantic must (a) accept an omitted field as
+    None AND (b) still discriminate a provided value."""
+    resource_yaml = tmp_path / "resource.yaml"
+    resource_yaml.write_text(_OPTIONAL_UNION_YAML, encoding="utf-8")
+    res = SpecLoader.load(resource_yaml)
+    parts = (PythonNaming(), PythonTypeMapper(), PythonDocstrings(), make_environment())
+    ctx = EmitContext(package_root="pagepkg.notion")
+    source = RuffFormatter().format(ModelsSurface(*parts).emit(res, ctx))
+    assert 'Field(discriminator="type", default=None)' in source
+
+    pkg = tmp_path / "pagepkg"
+    (pkg / "notion").mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "models.py").write_text(
+        "from pydantic import BaseModel\n\n\nclass APIModel(BaseModel):\n    pass\n",
+        encoding="utf-8",
+    )
+    (pkg / "notion" / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "notion" / "models.py").write_text(source, encoding="utf-8")
+
+    monkeypatch.syspath_prepend(str(tmp_path))
+    try:
+        models = importlib.import_module("pagepkg.notion.models")
+        assert models.Page().cover is None  # omitted -> None (optional, NOT required)
+        page = models.Page.model_validate({"cover": {"type": "heading_1", "text": "hi"}})
+        assert isinstance(page.cover, models.Heading1Block)  # still discriminates when provided
+    finally:
+        for name in ("pagepkg.notion.models", "pagepkg.notion", "pagepkg.models", "pagepkg"):
+            sys.modules.pop(name, None)

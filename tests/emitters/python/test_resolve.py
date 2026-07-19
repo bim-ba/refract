@@ -167,19 +167,20 @@ def test_discriminated_field_with_description_merges_one_field_call():
     assert line.count("Field(") == 1  # not two nested Field(...) calls
 
 
-def test_discriminated_optional_field_locks_none_placement():
-    """N3: an OPTIONAL discriminated-union field is implemented + pydantic-accepted (verified via
-    ``Annotated[Cat | Dog | None, Field(discriminator=...)]`` round-tripping through a live model)
-    but was previously untested - only the required case (above) was pinned. This locks the actual
-    ``render`` optional-wrap output: `` | None`` lands INSIDE the ``Annotated[...]`` (appended to
-    the union text by ``PythonTypeMapper.render`` before ``_model_field`` wraps it), unlike the
-    coercer optional case where `` | None`` is deliberately stripped and re-applied OUTSIDE
-    (``_model_field`` has no equivalent strip/re-wrap step for the discriminator branch)."""
+def test_discriminated_optional_field_carries_default_none():
+    """C3: an OPTIONAL discriminated-union field must carry ``default=None`` INSIDE its
+    ``Field(...)`` - without it pydantic treats ``Annotated[A | B | None, Field(discriminator=)]``
+    as REQUIRED (missing -> ValidationError). Also locks the `` | None`` placement: it lands INSIDE
+    the ``Annotated[...]`` (appended to the union text by ``PythonTypeMapper.render`` before
+    ``_model_field`` wraps it), unlike the coercer optional case where `` | None`` is stripped and
+    re-applied OUTSIDE. The pydantic omittable/discriminates behavior is proven in
+    tests/behavioral/test_discriminator_synthesis.py."""
     line, _imports = resolve._model_field(
         ir.Field(name="block", type=_UNION, optional=True), TYPE_MAPPER
     )
     assert line == (
-        '    block: Annotated[Paragraph | Heading1Block | None, Field(discriminator="type")]'
+        "    block: Annotated[Paragraph | Heading1Block | None, "
+        'Field(discriminator="type", default=None)]'
     )
 
 

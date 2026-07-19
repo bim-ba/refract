@@ -63,7 +63,11 @@ def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Im
     arguments: list[str] = []
     if rendered.discriminator is not None:
         arguments.append(f"discriminator={py_str(rendered.discriminator)}")
-    if default is not None and rendered.discriminator is None:
+    if default is not None:
+        # An OPTIONAL field carries `default` (the string "None") - it must reach Field(...) even
+        # for a discriminated union, else pydantic treats
+        # `Annotated[A | B | None, Field(discriminator=)]` as REQUIRED (missing -> ValidationError).
+        # A required field has `default is None` here, so it is omitted (stays required).
         arguments.append(f"default={default}")
     if field.alias is not None:
         arguments.append(f"alias={py_str(field.alias)}")
