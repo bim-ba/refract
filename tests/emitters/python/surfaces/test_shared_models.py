@@ -33,8 +33,8 @@ def test_shared_models_surface_omitted_when_no_shared_models(
 def test_resource_referencing_shared_model_imports_from_shared_module():
     """A resource whose field type is `ref<ObjectMeta>` (ObjectMeta shared, NOT local): its
     models.py imports ObjectMeta from `<package_root>.shared_models`, not from `.models`."""
-    from refract.emitters.api import EmitContext
-    from refract.emitters.python.docstrings import PythonDocstrings
+    from refract.emitters.ports import EmitContext
+    from refract.emitters.python.doc_comments import PythonDocComments
     from refract.emitters.python.naming import PythonNaming
     from refract.emitters.python.resolve import resolve_models
     from refract.emitters.python.types import PythonTypeMapper
@@ -54,7 +54,7 @@ def test_resource_referencing_shared_model_imports_from_shared_module():
         shared_models=(meta,),
     )
     ctx = EmitContext(package_root="ycli.yandex.k8s")
-    page = resolve_models(res, ctx, PythonNaming(), PythonTypeMapper(), PythonDocstrings())
+    page = resolve_models(res, ctx, PythonNaming(), PythonTypeMapper(), PythonDocComments())
     assert "from ycli.yandex.k8s.shared_models import ObjectMeta" in page.import_lines
 
 
@@ -64,8 +64,8 @@ def test_resource_referencing_shared_model_in_container_imports_from_shared_modu
     the one-level `isinstance(field.type, RefType)` scan missed it, so the generated models.py named
     ObjectMeta with no import -> not importable (PydanticUndefinedAnnotation). The k8s `PodList`
     shape is exactly Task 10's motivating case."""
-    from refract.emitters.api import EmitContext
-    from refract.emitters.python.docstrings import PythonDocstrings
+    from refract.emitters.ports import EmitContext
+    from refract.emitters.python.doc_comments import PythonDocComments
     from refract.emitters.python.naming import PythonNaming
     from refract.emitters.python.resolve import resolve_models
     from refract.emitters.python.types import PythonTypeMapper
@@ -86,7 +86,7 @@ def test_resource_referencing_shared_model_in_container_imports_from_shared_modu
         shared_models=(meta,),
     )
     ctx = EmitContext(package_root="ycli.yandex.k8s")
-    page = resolve_models(res, ctx, PythonNaming(), PythonTypeMapper(), PythonDocstrings())
+    page = resolve_models(res, ctx, PythonNaming(), PythonTypeMapper(), PythonDocComments())
     assert "from ycli.yandex.k8s.shared_models import ObjectMeta" in page.import_lines
 
 

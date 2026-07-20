@@ -1,4 +1,4 @@
-from refract.emitters.api import EmitContext
+from refract.emitters.ports import EmitContext
 from refract.emitters.python.surfaces.package import PackageSurface
 
 CTX = EmitContext(package_root="ycli.yandex.tracker")

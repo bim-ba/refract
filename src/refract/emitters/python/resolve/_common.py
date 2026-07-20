@@ -9,7 +9,7 @@ from refract.spec import SpecError
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.api import EmitContext, Import, Naming, TypeMapper
+    from refract.emitters.ports import EmitContext, Import, Naming, TypeMapper
 
 
 def render_imports(imports: tuple[Import, ...]) -> tuple[str, ...]:

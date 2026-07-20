@@ -5,7 +5,7 @@ import pytest
 from refract import ir
 from refract.ir.model import ObjectModel, RootListModel
 from refract.ir.types import LiteralType, RefType, ScalarType, UnionType
-from refract.spec import nodes
+from refract.spec import schema
 from refract.spec.loader import SpecError, SpecLoader, _field, _param, _resource, _response_model
 
 _EX = Path(__file__).resolve().parent.parent.parent / "examples" / "ycli-tracker"
@@ -157,8 +157,8 @@ operations:
         SpecLoader.load(resource_yaml)
 
 
-def _resp(model: str | None) -> nodes.ResponseSpec:
-    return nodes.ResponseSpec(model=model)
+def _resp(model: str | None) -> schema.ResponseSpec:
+    return schema.ResponseSpec(model=model)
 
 
 def test_response_model_prefers_first_2xx():
@@ -181,18 +181,18 @@ def test_optional_path_param_raises_spec_error():
     after the path decls, so a defaulted path param before the body renders a required-after-default
     `SyntaxError`. Reject it at the boundary instead."""
     with pytest.raises(SpecError, match=r"path param.*optional|optional.*path"):
-        _param(nodes.ParamSpec(name="thing_id", loc="path", optional=True))
+        _param(schema.ParamSpec(name="thing_id", loc="path", optional=True))
 
 
 def test_defaulted_path_param_raises_spec_error():
     with pytest.raises(SpecError, match=r"path param.*default|default.*path"):
-        _param(nodes.ParamSpec(name="thing_id", loc="path", default="x"))
+        _param(schema.ParamSpec(name="thing_id", loc="path", default="x"))
 
 
 def test_required_path_and_optional_query_param_load():
     """Positive control: a required path param and an optional query param are both fine."""
-    path = _param(nodes.ParamSpec(name="thing_id", loc="path"))
-    query = _param(nodes.ParamSpec(name="notify", loc="query", optional=True))
+    path = _param(schema.ParamSpec(name="thing_id", loc="path"))
+    query = _param(schema.ParamSpec(name="notify", loc="query", optional=True))
     assert path.loc == "path" and path.optional is False
     assert query.loc == "query" and query.optional is True
 
@@ -200,9 +200,9 @@ def test_required_path_and_optional_query_param_load():
 def test_undiscriminated_oneof_lowers_to_union_of_mixed_type_exprs():
     """Variant 2: an undiscriminated `oneof` (no discriminator) mixes a scalar + a ref."""
     field = _field(
-        nodes.FieldSpec(
+        schema.FieldSpec(
             name="source",
-            oneof=nodes.OneOfSpec(variants={"id": "string", "full": "ref<Customer>"}),
+            oneof=schema.OneOfSpec(variants={"id": "string", "full": "ref<Customer>"}),
         )
     )
     assert field.type == UnionType(
@@ -212,9 +212,9 @@ def test_undiscriminated_oneof_lowers_to_union_of_mixed_type_exprs():
 
 def test_discriminated_oneof_lowers_to_ref_union_with_discriminator():
     field = _field(
-        nodes.FieldSpec(
+        schema.FieldSpec(
             name="block",
-            oneof=nodes.OneOfSpec(
+            oneof=schema.OneOfSpec(
                 discriminator="type",
                 variants={"paragraph": "ref<Paragraph>", "heading_1": "ref<Heading1Block>"},
             ),
@@ -228,9 +228,9 @@ def test_discriminated_oneof_lowers_to_ref_union_with_discriminator():
 
 def test_discriminated_oneof_with_non_ref_variant_raises():
     """A discriminated variant that is a scalar (not `ref<Model>`) is rejected fail-loud."""
-    spec = nodes.FieldSpec(
+    spec = schema.FieldSpec(
         name="block",
-        oneof=nodes.OneOfSpec(discriminator="type", variants={"a": "string", "b": "ref<B>"}),
+        oneof=schema.OneOfSpec(discriminator="type", variants={"a": "string", "b": "ref<B>"}),
     )
     with pytest.raises(SpecError, match="must be a ref"):
         _field(spec)
@@ -238,16 +238,16 @@ def test_discriminated_oneof_with_non_ref_variant_raises():
 
 def test_single_variant_oneof_is_rejected():
     """The UnionType `>= 2` validator fires, re-wrapped as SpecError (covers the except arm)."""
-    spec = nodes.FieldSpec(name="x", oneof=nodes.OneOfSpec(variants={"only": "string"}))
+    spec = schema.FieldSpec(name="x", oneof=schema.OneOfSpec(variants={"only": "string"}))
     with pytest.raises(SpecError, match="2 variants"):
         _field(spec)
 
 
 def test_field_with_both_type_and_oneof_raises():
-    spec = nodes.FieldSpec(
+    spec = schema.FieldSpec(
         name="block",
         type="string",
-        oneof=nodes.OneOfSpec(discriminator="type", variants={"a": "ref<A>", "b": "ref<B>"}),
+        oneof=schema.OneOfSpec(discriminator="type", variants={"a": "ref<A>", "b": "ref<B>"}),
     )
     with pytest.raises(SpecError, match="exactly one of 'type' and 'oneof'"):
         _field(spec)
@@ -255,26 +255,26 @@ def test_field_with_both_type_and_oneof_raises():
 
 def test_field_with_neither_type_nor_oneof_raises():
     with pytest.raises(SpecError, match="needs 'type' or 'oneof'"):
-        _field(nodes.FieldSpec(name="block"))
+        _field(schema.FieldSpec(name="block"))
 
 
 def test_format_lands_on_scalar_type():
-    field = _field(nodes.FieldSpec(name="cores", type="integer", format="int64"))
+    field = _field(schema.FieldSpec(name="cores", type="integer", format="int64"))
     assert field.type == ScalarType(scalar="integer", format="int64")
 
 
 def test_format_on_non_scalar_raises():
     with pytest.raises(SpecError, match="format is only valid on a scalar"):
-        _field(nodes.FieldSpec(name="meta", type="ref<ObjectMeta>", format="int64"))
+        _field(schema.FieldSpec(name="meta", type="ref<ObjectMeta>", format="int64"))
 
 
 def test_format_on_oneof_union_raises():
     """format combines onto a parsed ScalarType; a oneof-derived UnionType is a non-scalar too -
     the SpecError arm must fire for the Task-4 oneof branch, not just the plain `type:` branch."""
-    spec = nodes.FieldSpec(
+    spec = schema.FieldSpec(
         name="block",
         format="int64",
-        oneof=nodes.OneOfSpec(variants={"id": "string", "full": "ref<Customer>"}),
+        oneof=schema.OneOfSpec(variants={"id": "string", "full": "ref<Customer>"}),
     )
     with pytest.raises(SpecError, match="format is only valid on a scalar"):
         _field(spec)
@@ -298,38 +298,38 @@ models:
         SpecLoader.load(resource_yaml)
 
 
-def _minimal_op() -> nodes.OperationSpec:
+def _minimal_op() -> schema.OperationSpec:
     """A minimal spec op so a `ResourceSpec` validates (ResourceSpec.operations is required)."""
-    return nodes.OperationSpec(
+    return schema.OperationSpec(
         name="list",
         method="GET",
         path="blocks",
         operationId="blocks_list",
-        responses={200: nodes.ResponseSpec(model="Block")},
-        mcp=nodes.McpSpec(
+        responses={200: schema.ResponseSpec(model="Block")},
+        mcp=schema.MCPToolSpec(
             name="blocks_list", safety="RO", title="List", documentation="List blocks."
         ),
     )
 
 
-def _paragraph() -> nodes.ModelSpec:
-    return nodes.ModelSpec(
-        name="Paragraph", fields=[nodes.FieldSpec(name="text", type="string", optional=True)]
+def _paragraph() -> schema.ModelSpec:
+    return schema.ModelSpec(
+        name="Paragraph", fields=[schema.FieldSpec(name="text", type="string", optional=True)]
     )
 
 
-def _heading() -> nodes.ModelSpec:
-    return nodes.ModelSpec(
-        name="Heading1Block", fields=[nodes.FieldSpec(name="text", type="string", optional=True)]
+def _heading() -> schema.ModelSpec:
+    return schema.ModelSpec(
+        name="Heading1Block", fields=[schema.FieldSpec(name="text", type="string", optional=True)]
     )
 
 
-def _block_with(variants: dict[str, str]) -> nodes.ModelSpec:
-    return nodes.ModelSpec(
+def _block_with(variants: dict[str, str]) -> schema.ModelSpec:
+    return schema.ModelSpec(
         name="Block",
         fields=[
-            nodes.FieldSpec(
-                name="block", oneof=nodes.OneOfSpec(discriminator="type", variants=variants)
+            schema.FieldSpec(
+                name="block", oneof=schema.OneOfSpec(discriminator="type", variants=variants)
             )
         ],
     )
@@ -340,18 +340,20 @@ def test_undiscriminated_oneof_synthesizes_no_tag_field():
     `oneof.discriminator is None` skip in `_synthesize_discriminators`. Driven through `_resource`
     (the synthesis entry point); other tests exercised undiscriminated unions only at the `_field`
     level, never end-to-end through this pass, so the skip arm was untested here."""
-    spec = nodes.ResourceSpec(
+    spec = schema.ResourceSpec(
         domain="notion",
         resource="blocks",
         security="tok",
         models=[
             _paragraph(),
-            nodes.ModelSpec(
+            schema.ModelSpec(
                 name="Block",
                 fields=[
-                    nodes.FieldSpec(
+                    schema.FieldSpec(
                         name="body",
-                        oneof=nodes.OneOfSpec(variants={"txt": "string", "para": "ref<Paragraph>"}),
+                        oneof=schema.OneOfSpec(
+                            variants={"txt": "string", "para": "ref<Paragraph>"}
+                        ),
                     )
                 ],
             ),
@@ -365,7 +367,7 @@ def test_undiscriminated_oneof_synthesizes_no_tag_field():
 
 
 def test_synthesizes_literal_tag_field_on_each_variant():
-    spec = nodes.ResourceSpec(
+    spec = schema.ResourceSpec(
         domain="notion",
         resource="blocks",
         security="tok",
@@ -388,15 +390,15 @@ def test_synthesizes_literal_tag_field_on_each_variant():
 
 def test_variant_authoring_its_own_tag_field_raises():
     """A variant that hand-writes a field named `type` collides with the synthesized tag."""
-    paragraph = nodes.ModelSpec(
+    paragraph = schema.ModelSpec(
         name="Paragraph",
         fields=[
             # collides with the synthesized discriminator
-            nodes.FieldSpec(name="type", type="string"),
-            nodes.FieldSpec(name="text", type="string", optional=True),
+            schema.FieldSpec(name="type", type="string"),
+            schema.FieldSpec(name="text", type="string", optional=True),
         ],
     )
-    spec = nodes.ResourceSpec(
+    spec = schema.ResourceSpec(
         domain="notion",
         resource="blocks",
         security="tok",
@@ -413,7 +415,7 @@ def test_variant_authoring_its_own_tag_field_raises():
 
 def test_oneof_naming_unknown_variant_raises():
     """A discriminated variant `ref<Nope>` where Nope is undeclared -> SpecError."""
-    spec = nodes.ResourceSpec(
+    spec = schema.ResourceSpec(
         domain="notion",
         resource="blocks",
         security="tok",
@@ -449,8 +451,8 @@ def test_load_shared_models_validation_error_raises_spec_error(tmp_path: Path):
 def test_discriminated_variant_naming_non_object_model_raises():
     """A discriminated variant `ref<Rows>` where Rows is a root_list model -> SpecError (covers the
     ObjectModel guard: `_oneof_type` only checks ref-ness, not object-ness)."""
-    rows = nodes.ModelSpec(name="Rows", kind="root_list", item="Paragraph")
-    spec = nodes.ResourceSpec(
+    rows = schema.ModelSpec(name="Rows", kind="root_list", item="Paragraph")
+    spec = schema.ResourceSpec(
         domain="notion",
         resource="blocks",
         security="tok",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, assert_never
 
-from refract.emitters.api import Import
+from refract.emitters.ports import Import
 from refract.emitters.python.resolve._common import (
     _referenced_model_names,
     render_imports,
@@ -13,7 +13,7 @@ from refract.ir import ObjectModel, TestKind
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.api import Docstrings, EmitContext, Naming, TypeMapper
+    from refract.emitters.ports import DocComments, EmitContext, Naming, TypeMapper
 
 # Docstring for the require_found empty-response guard (structural - only the 200-empty case,
 # tied to the sentinel ``r.login is None`` declared by the read-tool).
@@ -252,7 +252,7 @@ def resolve_tests(
     ctx: EmitContext,
     naming: Naming,
     type_mapper: TypeMapper,
-    docstrings: Docstrings,
+    doc_comments: DocComments,
 ) -> TestsPageView:
     """IR -> TestsPageView. Iterates ALL tests-bearing operations (not just the first), unions
     their ``kinds`` (a set of ``TestKind``) to gate imports/module-doc, and renders one leaf per
@@ -269,7 +269,7 @@ def resolve_tests(
         constants.extend(_tests_constants(res, op, ctx, {case.kind for case in op.tests}))
         tests.extend(_test_block(res, op, case) for case in op.tests)
     return TestsPageView(
-        doc_block=docstrings.render(_tests_module_doc(res, tested, kinds), ""),
+        doc_block=doc_comments.render(_tests_module_doc(res, tested, kinds), ""),
         header_lines=("from __future__ import annotations",),
         import_lines=_tests_imports(res, tested, ctx, kinds, client_class),
         constants=tuple(constants),

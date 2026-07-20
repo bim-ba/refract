@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from refract.emitters.api import LanguageBackend
+    from refract.emitters.ports import LanguageBackend
 
 __all__ = ["UnknownBackendError", "backend", "get_backend"]
 

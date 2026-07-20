@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, assert_never
 
-from refract.emitters.api import Import
+from refract.emitters.ports import Import
 from refract.emitters.python.resolve._common import (
     _shared_models_module,
     _type_ref_targets,
@@ -14,7 +14,7 @@ from refract.ir import ObjectModel, RootListModel
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.api import Docstrings, EmitContext, Naming, TypeMapper
+    from refract.emitters.ports import DocComments, EmitContext, Naming, TypeMapper
 
 
 def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Import]]:
@@ -80,7 +80,7 @@ def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Im
 
 
 def _model_class(
-    model: ir.Model, type_mapper: TypeMapper, docstrings: Docstrings
+    model: ir.Model, type_mapper: TypeMapper, doc_comments: DocComments
 ) -> tuple[str, list[Import]]:
     """The finished source for one model class - dispatches over the ``Model`` union.
 
@@ -93,12 +93,12 @@ def _model_class(
         case RootListModel():
             lines = [
                 f"class {model.name}(RootModel[list[{model.item}]]):",
-                *docstrings.render(model.documentation, "    "),
+                *doc_comments.render(model.documentation, "    "),
             ]
             return "\n".join(lines), []
         case ObjectModel():
             lines = [f"class {model.name}(APIModel):"]
-            lines += docstrings.render(model.documentation, "    ")
+            lines += doc_comments.render(model.documentation, "    ")
             lines.append("")
             imports: list[Import] = []
             for field in model.fields:
@@ -139,7 +139,7 @@ def _base_model_imports(
 
 
 def _model_classes(
-    models: tuple[ir.Model, ...], type_mapper: TypeMapper, docstrings: Docstrings
+    models: tuple[ir.Model, ...], type_mapper: TypeMapper, doc_comments: DocComments
 ) -> tuple[list[str], list[Import]]:
     """The finished class bodies for a set of models, plus the imports their fields' types pull
     in (`_model_class`, reused verbatim for both a resource's local models and a domain's shared
@@ -147,7 +147,7 @@ def _model_classes(
     classes: list[str] = []
     imports: list[Import] = []
     for model in models:
-        text, class_imports = _model_class(model, type_mapper, docstrings)
+        text, class_imports = _model_class(model, type_mapper, doc_comments)
         classes.append(text)
         imports += class_imports
     return classes, imports
@@ -182,17 +182,17 @@ def resolve_models(
     ctx: EmitContext,
     naming: Naming,
     type_mapper: TypeMapper,
-    docstrings: Docstrings,
+    doc_comments: DocComments,
 ) -> ModelsPageView:
     """IR -> ModelsPageView: module docstring, imports (APIModel + pydantic + those collected
     from types + shared-model cross-file imports), finished classes. ``APIModel`` is always
     imported."""
     imports = _base_model_imports(res.models, ctx, type_mapper)
-    classes, class_imports = _model_classes(res.models, type_mapper, docstrings)
+    classes, class_imports = _model_classes(res.models, type_mapper, doc_comments)
     imports += class_imports
     imports += _shared_ref_imports(res.models, {m.name for m in res.shared_models}, ctx)
     return ModelsPageView(
-        doc_block=docstrings.render(res.module_docs.models, ""),
+        doc_block=doc_comments.render(res.module_docs.models, ""),
         header_lines=("from __future__ import annotations",),
         import_lines=render_imports(tuple(imports)),
         classes=tuple(classes),
@@ -204,7 +204,7 @@ def resolve_shared_models(
     ctx: EmitContext,
     naming: Naming,
     type_mapper: TypeMapper,
-    docstrings: Docstrings,
+    doc_comments: DocComments,
 ) -> ModelsPageView:
     """Emit ``resources[0].shared_models`` ONCE (a DomainEmitter, run per-domain) - identical
     across the domain by Task 9's ``_attach_shared``, so any one resource's ``shared_models``
@@ -213,10 +213,12 @@ def resolve_shared_models(
     cross-file)."""
     models = resources[0].shared_models
     imports = _base_model_imports(models, ctx, type_mapper)
-    classes, class_imports = _model_classes(models, type_mapper, docstrings)
+    classes, class_imports = _model_classes(models, type_mapper, doc_comments)
     imports += class_imports
     return ModelsPageView(
-        doc_block=docstrings.render(f"Shared models for the {resources[0].domain_title} API.", ""),
+        doc_block=doc_comments.render(
+            f"Shared models for the {resources[0].domain_title} API.", ""
+        ),
         header_lines=("from __future__ import annotations",),
         import_lines=render_imports(tuple(imports)),
         classes=tuple(classes),

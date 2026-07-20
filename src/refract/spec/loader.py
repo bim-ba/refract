@@ -15,7 +15,7 @@ from refract.ir.types import (
     ScalarType,
     UnionType,
 )
-from refract.spec import nodes
+from refract.spec import schema
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -65,7 +65,7 @@ def parse_neutral_type(text: str) -> NeutralType:
 # --------------------------------------------------------------------- resource.yaml -> ir.Resource
 
 
-def _field(spec: nodes.FieldSpec) -> ir.Field:
+def _field(spec: schema.FieldSpec) -> ir.Field:
     if spec.type is not None and spec.oneof is not None:
         raise SpecError(f"field {spec.name!r}: set exactly one of 'type' and 'oneof', not both")
     if spec.oneof is not None:
@@ -88,7 +88,7 @@ def _field(spec: nodes.FieldSpec) -> ir.Field:
     )
 
 
-def _oneof_type(field_name: str, spec: nodes.OneOfSpec) -> UnionType:
+def _oneof_type(field_name: str, spec: schema.OneOfSpec) -> UnionType:
     """Lower a structured `oneof:` node to a UnionType (Variant 2: one node, both union kinds).
 
     Variant VALUES are neutral type-EXPRESSIONS, so an undiscriminated union may mix
@@ -112,7 +112,7 @@ def _oneof_type(field_name: str, spec: nodes.OneOfSpec) -> UnionType:
         raise SpecError(f"field {field_name!r}: {error}") from error
 
 
-def _param(spec: nodes.ParamSpec) -> ir.Param:
+def _param(spec: schema.ParamSpec) -> ir.Param:
     # A path param fills a `{...}` slot in the URL and is therefore always required. Permitting
     # `optional`/`default` on it is a representable illegal state: every non-CLI surface appends
     # `body: <model>` (no default) after the path decls, so a defaulted path param before the body
@@ -134,7 +134,7 @@ def _param(spec: nodes.ParamSpec) -> ir.Param:
     )
 
 
-def _model(spec: nodes.ModelSpec) -> ir.Model:
+def _model(spec: schema.ModelSpec) -> ir.Model:
     """Build the Model variant `kind` selects (config dropped: dead - 0 spec/emitter uses)."""
     if spec.kind == "root_list":
         if spec.item is None:
@@ -148,7 +148,7 @@ def _model(spec: nodes.ModelSpec) -> ir.Model:
 
 
 def _synthesize_discriminators(
-    models: tuple[ir.Model, ...], specs: list[nodes.ModelSpec]
+    models: tuple[ir.Model, ...], specs: list[schema.ModelSpec]
 ) -> tuple[ir.Model, ...]:
     """Inject each discriminated-union variant's synthetic `Literal[label]` field (default B).
 
@@ -195,17 +195,17 @@ def _synthesize_discriminators(
     return tuple(result)
 
 
-def _body(spec: nodes.BodySpec | None) -> ir.Body | None:
+def _body(spec: schema.BodySpec | None) -> ir.Body | None:
     """by_alias/omit_none take True/True defaults; ``dump`` text is not lowered into the IR."""
     return None if spec is None else ir.Body(model=spec.model)
 
 
-def _require_found(spec: nodes.RequireFoundSpec | None) -> ir.RequireFound | None:
+def _require_found(spec: schema.RequireFoundSpec | None) -> ir.RequireFound | None:
     return None if spec is None else ir.RequireFound(sentinel=spec.sentinel, message=spec.message)
 
 
-def _mcp(spec: nodes.McpSpec) -> ir.McpMeta:
-    return ir.McpMeta(
+def _mcp(spec: schema.MCPToolSpec) -> ir.MCPTool:
+    return ir.MCPTool(
         name=spec.name,
         safety=spec.safety,  # str -> ir.Safety StrEnum (pydantic coerces at the IR boundary)
         title=spec.title,
@@ -214,11 +214,11 @@ def _mcp(spec: nodes.McpSpec) -> ir.McpMeta:
     )
 
 
-def _cli(spec: nodes.CliSpec | None) -> ir.CliMeta | None:
-    return None if spec is None else ir.CliMeta(name=spec.name, documentation=spec.documentation)
+def _cli(spec: schema.CLICommandSpec | None) -> ir.CLICommand | None:
+    return None if spec is None else ir.CLICommand(name=spec.name, documentation=spec.documentation)
 
 
-def _test(spec: nodes.TestSpec) -> ir.TestCase:
+def _test(spec: schema.TestSpec) -> ir.TestCase:
     return ir.TestCase(
         name=spec.name,
         kind=spec.kind,  # str -> ir.TestKind StrEnum (pydantic coerces)
@@ -232,7 +232,7 @@ def _test(spec: nodes.TestSpec) -> ir.TestCase:
     )
 
 
-def _response_model(name: str, responses: dict[int, nodes.ResponseSpec]) -> str | None:
+def _response_model(name: str, responses: dict[int, schema.ResponseSpec]) -> str | None:
     """The first-2xx success model name, or None for a bodyless success. SpecError if no 2xx."""
     success = [status for status in responses if 200 <= status < 300]
     if not success:
@@ -240,7 +240,7 @@ def _response_model(name: str, responses: dict[int, nodes.ResponseSpec]) -> str 
     return responses[min(success)].model
 
 
-def _operation(spec: nodes.OperationSpec) -> ir.Operation:
+def _operation(spec: schema.OperationSpec) -> ir.Operation:
     return ir.Operation(
         name=spec.name,
         method=spec.method,
@@ -257,7 +257,7 @@ def _operation(spec: nodes.OperationSpec) -> ir.Operation:
     )
 
 
-def _module_docs(spec: nodes.ModuleDocsSpec) -> ir.ModuleDocs:
+def _module_docs(spec: schema.ModuleDocsSpec) -> ir.ModuleDocs:
     return ir.ModuleDocs(
         client=spec.client,
         models=spec.models,
@@ -269,7 +269,7 @@ def _module_docs(spec: nodes.ModuleDocsSpec) -> ir.ModuleDocs:
     )
 
 
-def _resource(spec: nodes.ResourceSpec) -> ir.Resource:
+def _resource(spec: schema.ResourceSpec) -> ir.Resource:
     models = _synthesize_discriminators(tuple(_model(model) for model in spec.models), spec.models)
     return ir.Resource(
         domain=spec.domain,
@@ -285,18 +285,18 @@ def _resource(spec: nodes.ResourceSpec) -> ir.Resource:
 # --------------------------------------------------------------- client.yaml -> ir.ClientConfig
 
 
-def _auth_input(name: str, node: nodes.AuthInputNode) -> ir.AuthInput:
+def _auth_input(name: str, node: schema.AuthInputSpec) -> ir.AuthInput:
     return ir.AuthInput(name=name, env=node.env)
 
 
-def _auth_scheme(node: nodes.AuthSchemeNode) -> ir.AuthScheme:
+def _auth_scheme(node: schema.AuthSchemeSpec) -> ir.AuthScheme:
     inputs = tuple(_auth_input(name, inp) for name, inp in node.inputs.items())
-    if isinstance(node, nodes.MultiHeaderAuthNode):
+    if isinstance(node, schema.MultiHeaderAuthSpec):
         return ir.MultiHeaderAuth(headers=tuple(node.headers.items()), inputs=inputs)
     return ir.HeaderAuth(header=node.header, template=node.template, inputs=inputs)
 
 
-def _client_config(spec: nodes.ClientConfigNode) -> ir.ClientConfig:
+def _client_config(spec: schema.ClientConfigSpec) -> ir.ClientConfig:
     return ir.ClientConfig(
         name=spec.name,
         server=ir.Server(base_url=spec.server.base_url),
@@ -323,7 +323,7 @@ class SpecLoader:
     def load(path: Path) -> ir.Resource:
         raw = _read_mapping(path)
         try:
-            spec = nodes.ResourceSpec.model_validate(raw)
+            spec = schema.ResourceSpec.model_validate(raw)
         except ValidationError as error:
             raise SpecError(f"{path}: spec failed validation -\n{error}") from error
         return _resource(spec)
@@ -332,7 +332,7 @@ class SpecLoader:
     def load_client_config(path: Path) -> ir.ClientConfig:
         raw = _read_mapping(path)
         try:
-            spec = nodes.ClientConfigNode.model_validate(raw)
+            spec = schema.ClientConfigSpec.model_validate(raw)
         except ValidationError as error:
             raise SpecError(f"{path}: client config failed validation -\n{error}") from error
         return _client_config(spec)
@@ -343,7 +343,7 @@ class SpecLoader:
         `_synthesize_discriminators` so a shared discriminated union is also tag-synthesized."""
         raw = _read_mapping(path)
         try:
-            spec = nodes.SharedModelsSpec.model_validate(raw)
+            spec = schema.SharedModelsSpec.model_validate(raw)
         except ValidationError as error:
             raise SpecError(f"{path}: shared models failed validation -\n{error}") from error
         return _synthesize_discriminators(tuple(_model(m) for m in spec.models), spec.models)

@@ -1,5 +1,5 @@
 from refract import ir
-from refract.emitters.api import EmitContext
+from refract.emitters.ports import EmitContext
 
 # A resource whose sole operation carries no `tests:` facet - proves the `applies() is False`
 # branch without depending on the `priorities` example fixture, which now DOES carry tests
@@ -25,13 +25,15 @@ CTX = EmitContext(
 
 
 def _surface():
-    from refract.emitters.python.docstrings import PythonDocstrings
-    from refract.emitters.python.environment import make_environment
+    from refract.emitters.python.doc_comments import PythonDocComments
     from refract.emitters.python.naming import PythonNaming
     from refract.emitters.python.surfaces.tests import TestsSurface
+    from refract.emitters.python.templating import make_template_environment
     from refract.emitters.python.types import PythonTypeMapper
 
-    return TestsSurface(PythonNaming(), PythonTypeMapper(), PythonDocstrings(), make_environment())
+    return TestsSurface(
+        PythonNaming(), PythonTypeMapper(), PythonDocComments(), make_template_environment()
+    )
 
 
 def _emit(res):

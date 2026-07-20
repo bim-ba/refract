@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from refract.emitters.api import Import
+from refract.emitters.ports import Import
 from refract.emitters.python.resolve._common import (
     _shared_models_module,
     py_str,
@@ -14,7 +14,7 @@ from refract.ir import Safety
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.api import Docstrings, EmitContext, Naming, TypeMapper
+    from refract.emitters.ports import DocComments, EmitContext, Naming, TypeMapper
 
 
 def _tags_symbol(safety: Safety) -> str:
@@ -49,7 +49,7 @@ def _mcp_tool(
     op: ir.Operation,
     naming: Naming,
     type_mapper: TypeMapper,
-    docstrings: Docstrings,
+    doc_comments: DocComments,
 ) -> tuple[str, list[Import]]:
     """The finished text for one ``@mcp.tool`` function, forwarding into the client (with a
     guard when ``require_found`` is declared).
@@ -81,7 +81,7 @@ def _mcp_tool(
             f"result, sentinel=lambda r: {guard.sentinel}, "
             f"message={py_str(guard.message)})",
         ]
-    lines = [decorator, signature, *docstrings.render(meta.documentation, "    "), *body]
+    lines = [decorator, signature, *doc_comments.render(meta.documentation, "    "), *body]
     return "\n".join(lines), imports
 
 
@@ -90,7 +90,7 @@ def resolve_mcp(
     ctx: EmitContext,
     naming: Naming,
     type_mapper: TypeMapper,
-    docstrings: Docstrings,
+    doc_comments: DocComments,
 ) -> McpPageView:
     """IR -> McpPageView: module docstring, imports (fastmcp + package_root-domain modules +
     those collected from types), ``mcp = FastMCP(...)`` plus the finished tools. Iterates only
@@ -117,11 +117,11 @@ def resolve_mcp(
             imports.append(Import(models_module, op.body.model))
         if meta.require_found is not None:
             imports.append(Import(_shared_models_module(ctx), "require_found"))
-        text, tool_imports = _mcp_tool(res, op, naming, type_mapper, docstrings)
+        text, tool_imports = _mcp_tool(res, op, naming, type_mapper, doc_comments)
         tools.append(text)
         imports += tool_imports
     return McpPageView(
-        doc_block=docstrings.render(res.module_docs.mcp, ""),
+        doc_block=doc_comments.render(res.module_docs.mcp, ""),
         import_lines=render_imports(tuple(imports)),
         server_line=f'mcp = FastMCP("{res.module_docs.mcp_server}")',
         tools=tuple(tools),

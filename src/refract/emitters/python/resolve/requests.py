@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from refract.emitters.api import Import
+from refract.emitters.ports import Import
 from refract.emitters.python.resolve._common import (
     render_imports,
     signature_and_call,
@@ -12,7 +12,7 @@ from refract.emitters.python.views import RequestsPageView
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.api import Docstrings, EmitContext, Naming, TypeMapper
+    from refract.emitters.ports import DocComments, EmitContext, Naming, TypeMapper
 
 
 def path_expr(path: str, params: tuple[ir.Param, ...], naming: Naming) -> str:
@@ -40,7 +40,7 @@ def _request_doc(op: ir.Operation, *, write: bool) -> str:
 
 
 def _request_function(
-    op: ir.Operation, naming: Naming, type_mapper: TypeMapper, docstrings: Docstrings
+    op: ir.Operation, naming: Naming, type_mapper: TypeMapper, doc_comments: DocComments
 ) -> tuple[str, list[Import]]:
     body = op.body  # write iff not None; narrowed to ir.Body below
     positional, keyword_only, _call_args, param_imports = signature_and_call(
@@ -72,7 +72,7 @@ def _request_function(
         )
     kwargs.append(response_kwarg)
 
-    doc = docstrings.render(_request_doc(op, write=body is not None), "    ")
+    doc = doc_comments.render(_request_doc(op, write=body is not None), "    ")
     lines = [sig, *doc, f"    return Request({', '.join(kwargs)})"]
     return "\n".join(lines), imports
 
@@ -82,12 +82,12 @@ def resolve_requests(
     ctx: EmitContext,
     naming: Naming,
     type_mapper: TypeMapper,
-    docstrings: Docstrings,
+    doc_comments: DocComments,
 ) -> RequestsPageView:
     imports: list[Import] = [Import(f"{ctx.package_root}.runtime", "Request")]
     functions: list[str] = []
     for op in res.operations:
-        text, fimports = _request_function(op, naming, type_mapper, docstrings)
+        text, fimports = _request_function(op, naming, type_mapper, doc_comments)
         functions.append(text)
         imports += fimports
     module_doc = res.module_docs.requests or (
@@ -95,7 +95,7 @@ def resolve_requests(
         "the single HTTP contract (sans-I/O)."
     )
     return RequestsPageView(
-        doc_block=docstrings.render(module_doc, ""),
+        doc_block=doc_comments.render(module_doc, ""),
         import_lines=render_imports(tuple(imports)),
         functions=tuple(functions),
     )

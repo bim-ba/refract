@@ -1,5 +1,5 @@
 from refract import ir
-from refract.emitters.api import EmitContext
+from refract.emitters.ports import EmitContext
 
 # Root-client glue is resolved from ClientConfig: server + the auth scheme a resource's
 # `security` names. The scheme's AuthInput.name values drive the ctor params + from_env, and the
@@ -29,15 +29,15 @@ CTX = EmitContext(
 
 
 def _emit(resources):
-    from refract.emitters.python.docstrings import PythonDocstrings
-    from refract.emitters.python.environment import make_environment
+    from refract.emitters.python.doc_comments import PythonDocComments
     from refract.emitters.python.format import RuffFormatter
     from refract.emitters.python.naming import PythonNaming
     from refract.emitters.python.surfaces.root_client import RootClientSurface
+    from refract.emitters.python.templating import make_template_environment
     from refract.emitters.python.types import PythonTypeMapper
 
     surface = RootClientSurface(
-        PythonNaming(), PythonTypeMapper(), PythonDocstrings(), make_environment()
+        PythonNaming(), PythonTypeMapper(), PythonDocComments(), make_template_environment()
     )
     return RuffFormatter().format(surface.emit(resources, CTX))
 

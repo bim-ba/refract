@@ -82,7 +82,7 @@ class RequireFound(_IR):
     message: str
 
 
-class McpMeta(_IR):
+class MCPTool(_IR):
     name: str
     safety: Safety
     title: str
@@ -90,7 +90,7 @@ class McpMeta(_IR):
     require_found: RequireFound | None = None
 
 
-class CliMeta(_IR):
+class CLICommand(_IR):
     name: str
     documentation: str
 
@@ -118,8 +118,8 @@ class Operation(_IR):
     body: Body | None = None
     response_model: str | None = None
     documentation: str | None = None
-    mcp: McpMeta | None = None
-    cli: CliMeta | None = None
+    mcp: MCPTool | None = None
+    cli: CLICommand | None = None
     tests: tuple[TestCase, ...] = ()
     handler: str | None = None  # carried for fidelity; not yet read by any emitter
 

@@ -13,16 +13,16 @@ import ast
 import pytest
 
 from refract import ir
-from refract.emitters.api import EmitContext
+from refract.emitters.ports import EmitContext
 from refract.emitters.python import resolve
-from refract.emitters.python.docstrings import PythonDocstrings
+from refract.emitters.python.doc_comments import PythonDocComments
 from refract.emitters.python.naming import PythonNaming
 from refract.emitters.python.types import PythonTypeMapper
 from refract.spec import SpecError
 
 NAMING = PythonNaming()
 TYPE_MAPPER = PythonTypeMapper()
-DOCSTRINGS = PythonDocstrings()
+DOCSTRINGS = PythonDocComments()
 CTX = EmitContext(package_root="ycli.yandex.tracker")
 
 _STRING = ir.ScalarType(scalar="string")
@@ -53,7 +53,7 @@ def _priorities_like_resource() -> ir.Resource:
         operation_id="priorities_create",
         body=ir.Body(model="PriorityCreate"),
         response_model="Priority",
-        cli=ir.CliMeta(name="create", documentation="Create a priority."),
+        cli=ir.CLICommand(name="create", documentation="Create a priority."),
     )
     return ir.Resource(
         domain="tracker",
@@ -244,7 +244,7 @@ def test_cli_command_guards_shadowed_body_field_end_to_end():
         path="widgets",
         operation_id="widgets_create",
         body=ir.Body(model="Widget"),
-        cli=ir.CliMeta(name="create", documentation="Create a widget."),
+        cli=ir.CLICommand(name="create", documentation="Create a widget."),
     )
     res = ir.Resource(
         domain="tracker",
@@ -315,7 +315,7 @@ def test_cli_page_remap_passes_through_non_models_import():
         path="widgets",
         operation_id="widgets_create",
         body=ir.Body(model="Widget"),
-        cli=ir.CliMeta(name="create", documentation="Create a widget."),
+        cli=ir.CLICommand(name="create", documentation="Create a widget."),
     )
     res = ir.Resource(
         domain="tracker",
@@ -341,7 +341,7 @@ def test_cli_command_write_op_threads_path_and_query_params():
             ir.Param(name="notify", loc="query", type=ir.ScalarType(scalar="boolean")),
         ),
         body=ir.Body(model="Thing"),
-        cli=ir.CliMeta(name="edit", documentation="Edit a thing."),
+        cli=ir.CLICommand(name="edit", documentation="Edit a thing."),
     )
     res = ir.Resource(
         domain="tracker",
@@ -372,7 +372,7 @@ def test_cli_command_rejects_body_option_colliding_with_query_param():
             ir.Param(name="label", loc="query", type=ir.ScalarType(scalar="boolean")),
         ),
         body=ir.Body(model="Thing"),
-        cli=ir.CliMeta(name="edit", documentation="Edit a thing."),
+        cli=ir.CLICommand(name="edit", documentation="Edit a thing."),
     )
     res = ir.Resource(
         domain="tracker",
@@ -392,7 +392,7 @@ def test_cli_command_read_op_unchanged():
         method="GET",
         path="me",
         operation_id="me_get",
-        cli=ir.CliMeta(
+        cli=ir.CLICommand(
             name="get", documentation="Print the authenticated user (a safe auth probe)."
         ),
     )
@@ -441,7 +441,7 @@ def test_cli_command_edit_shape_orders_required_path_before_defaulted_options():
             ),
         ),
         body=ir.Body(model="PriorityEdit"),
-        cli=ir.CliMeta(name="edit", documentation="Edit a priority."),
+        cli=ir.CLICommand(name="edit", documentation="Edit a priority."),
     )
     res = ir.Resource(
         domain="tracker",
@@ -474,7 +474,7 @@ def test_assembled_options_orders_required_scalar_before_defaulted_scalar():
         path="things",
         operation_id="things_write",
         body=ir.Body(model="NotePatch"),
-        cli=ir.CliMeta(name="write", documentation="Write a thing."),
+        cli=ir.CLICommand(name="write", documentation="Write a thing."),
     )
     res = ir.Resource(
         domain="tracker",

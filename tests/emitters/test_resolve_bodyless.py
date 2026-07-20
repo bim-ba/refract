@@ -1,11 +1,11 @@
 from refract import ir
-from refract.emitters.python.docstrings import PythonDocstrings
+from refract.emitters.python.doc_comments import PythonDocComments
 from refract.emitters.python.naming import PythonNaming
 from refract.emitters.python.resolve import _client_method, _request_function
 from refract.emitters.python.types import PythonTypeMapper
 from refract.ir.types import ScalarType
 
-_PARTS = (PythonNaming(), PythonTypeMapper(), PythonDocstrings())
+_PARTS = (PythonNaming(), PythonTypeMapper(), PythonDocComments())
 _DELETE = ir.Operation(
     name="delete",
     method="DELETE",

@@ -3,7 +3,7 @@ from __future__ import annotations
 import builtins
 import keyword
 
-from refract.emitters.api import Naming
+from refract.emitters.ports import Naming
 
 # Names a Python identifier (def name OR parameter) would shadow (builtins + keywords).
 _SHADOWED = frozenset(dir(builtins)) | frozenset(keyword.kwlist)

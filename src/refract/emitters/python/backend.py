@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from refract.emitters.api import LanguageBackend
-from refract.emitters.python.docstrings import PythonDocstrings
-from refract.emitters.python.environment import make_environment
+from refract.emitters.ports import LanguageBackend
+from refract.emitters.python.doc_comments import PythonDocComments
+from refract.emitters.python.file_layout import PythonFileLayout
 from refract.emitters.python.format import RuffFormatter
-from refract.emitters.python.layout import PythonLayout
 from refract.emitters.python.naming import PythonNaming
 from refract.emitters.python.surfaces.cli import CliSurface
 from refract.emitters.python.surfaces.client import ClientSurface
@@ -15,6 +14,7 @@ from refract.emitters.python.surfaces.requests import RequestsSurface
 from refract.emitters.python.surfaces.root_client import RootClientSurface
 from refract.emitters.python.surfaces.shared_models import SharedModelsSurface
 from refract.emitters.python.surfaces.tests import TestsSurface
+from refract.emitters.python.templating import make_template_environment
 from refract.emitters.python.types import PythonTypeMapper
 from refract.emitters.registry import backend
 
@@ -25,9 +25,9 @@ def python_backend() -> LanguageBackend:
     shared_models domain glue."""
     naming = PythonNaming()
     type_mapper = PythonTypeMapper()
-    docstrings = PythonDocstrings()
-    env = make_environment()
-    parts = (naming, type_mapper, docstrings, env)
+    doc_comments = PythonDocComments()
+    env = make_template_environment()
+    parts = (naming, type_mapper, doc_comments, env)
     surfaces = (
         PackageSurface(),
         ModelsSurface(*parts),
@@ -42,8 +42,8 @@ def python_backend() -> LanguageBackend:
         naming=naming,
         type_mapper=type_mapper,
         formatter=RuffFormatter(),
-        docstrings=docstrings,
-        layout=PythonLayout(),
+        doc_comments=doc_comments,
+        file_layout=PythonFileLayout(),
         surfaces=surfaces,
         domain_surfaces=(RootClientSurface(*parts), SharedModelsSurface(*parts)),
     )

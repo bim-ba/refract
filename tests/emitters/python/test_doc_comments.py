@@ -1,6 +1,6 @@
-from refract.emitters.python.docstrings import PythonDocstrings
+from refract.emitters.python.doc_comments import PythonDocComments
 
-d = PythonDocstrings()
+d = PythonDocComments()
 
 
 def test_absent_text_is_empty():

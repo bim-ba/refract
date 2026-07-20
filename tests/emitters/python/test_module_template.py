@@ -1,8 +1,8 @@
-from refract.emitters.python.environment import make_environment
+from refract.emitters.python.templating import make_template_environment
 
 
 def test_module_skeleton_lays_out_doc_imports_body():
-    env = make_environment()
+    env = make_template_environment()
     child = env.from_string(
         '{% extends "_module.jinja" %}{% block body %}CLASS_BODY\n{% endblock %}'
     )

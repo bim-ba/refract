@@ -1,4 +1,4 @@
-from refract.emitters.api import LanguageBackend
+from refract.emitters.ports import LanguageBackend
 from refract.emitters.python.backend import python_backend
 from refract.emitters.registry import get_backend
 

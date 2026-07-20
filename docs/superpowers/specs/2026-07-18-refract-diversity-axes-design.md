@@ -77,11 +77,11 @@ redesign). Genuine OPEN debt:
 
 | # | Item | Fix | Cx |
 |---|---|---|---|
-| D1 | tests emitter is single-op (`resolve.py:684` binds one op via `next(... if op.tests)`) | Loop over every tests-bearing op; per-op imports/constants/blocks. Pure generalization. | M |
-| D2 | 204 / no-response-model ops fail loud (`resolve.py:131-132,194-195`) | Make `ResponseSpec.model` optional + allow status-only entries; requests/client/mcp emit `-> None` and skip the response `.models` import; `Session.send` returns `None` on empty body. | M-L |
+| D1 | tests emitter is single-op (`resolve/` binds one op via `next(... if op.tests)`) | Loop over every tests-bearing op; per-op imports/constants/blocks. Pure generalization. | M |
+| D2 | 204 / no-response-model ops fail loud (`resolve/`) | Make `ResponseSpec.model` optional + allow status-only entries; requests/client/mcp emit `-> None` and skip the response `.models` import; `Session.send` returns `None` on empty body. | M-L |
 | D3 | vacuous no-facet surface-gate coverage (every `applies()` False arm untested) | Add a fixture resource with no mcp / no cli / no tests / no models; assert those files are absent from the plan. | S |
 | D4 | loader hardcodes `responses[200]` (`loader.py:133-137`) | First-2xx selection (`min` of 2xx statuses), `SpecError` if none. Implement WITH D2 (they are the same change: `ResponseSpec.model` becomes optional). | S |
-| D5 | cli-write commands: `_cli_command` emits a param-less passthrough (`resolve.py:332-350`); a write op's CLI leaf would call a `body:`-taking method with zero args | Assembled-CLI per Q1: walk the body model's fields, emit one typer option per leaf, reassemble the model, forward it. | L |
+| D5 | cli-write commands: `_cli_command` emits a param-less passthrough (`resolve/`); a write op's CLI leaf would call a `body:`-taking method with zero args | Assembled-CLI per Q1: walk the body model's fields, emit one typer option per leaf, reassemble the model, forward it. | L |
 
 D2 and D4 are one change (a 204/201-only op has no `{200: {model}}` to read, and the spec node
 cannot express a status entry without a model). D1 gates the entire tests-emitter coupling (2.8).
@@ -93,11 +93,11 @@ core redesign; this is the strategy-registry growth model the stress test valida
 
 | Growth shape | Axes that use it | Touches |
 |---|---|---|
-| New optional field on `ir.Operation` | pagination, error-model, async/LRO, per-op host, conditional-requests | `ir/model.py`, `spec/nodes.py`, `emitters/python/resolve.py` |
-| New discriminated field on `ir.Body` + a runtime encoder | body-encoding (Form/Multipart/Ndjson/RawBytes/FieldMask) | `ir/model.py`, `runtime/request.py`, `runtime/session.py`, `resolve.py:143` |
-| New `AuthScheme` union member + a new `httpx.Auth` mechanism | generated-key, secret-in-path, SigV4, token-provider; mTLS reaches transport | `ir/auth.py`, `runtime/auth.py`, `resolve.py:743-776` |
+| New optional field on `ir.Operation` | pagination, error-model, async/LRO, per-op host, conditional-requests | `ir/model.py`, `spec/schema.py`, `emitters/python/resolve/` |
+| New discriminated field on `ir.Body` + a runtime encoder | body-encoding (Form/Multipart/Ndjson/RawBytes/FieldMask) | `ir/model.py`, `runtime/request.py`, `runtime/session.py`, `resolve/` |
+| New `AuthScheme` union member + a new `httpx.Auth` mechanism | generated-key, secret-in-path, SigV4, token-provider; mTLS reaches transport | `ir/auth.py`, `runtime/auth.py`, `resolve/` |
 | New `NeutralType` variant | discriminated + undiscriminated unions; scalar formats | `ir/types.py`, `spec/loader.py:37-54`, `emitters/python/types.py` |
-| New shared spec node + cross-file resolution | cross-file / shared model refs | `spec/loader.py`, `spec/nodes.py`, `resolve.py:230-234,306` |
+| New shared spec node + cross-file resolution | cross-file / shared model refs | `spec/loader.py`, `spec/schema.py`, `emitters/python/resolve/` |
 | New primitive in the transport return | response-header capture (the keystone) | `runtime/request.py`, `runtime/session.py`, every model-unwrapping caller |
 
 Two foundations are front-loaded because they unblock the most downstream axes:

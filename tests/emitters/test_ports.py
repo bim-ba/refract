@@ -3,7 +3,7 @@ import dataclasses
 import pytest
 
 from refract import ir
-from refract.emitters.api import (
+from refract.emitters.ports import (
     DomainEmitter,
     EmitContext,
     LanguageBackend,

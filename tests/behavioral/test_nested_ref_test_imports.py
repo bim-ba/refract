@@ -21,14 +21,14 @@ import sys
 import pytest
 
 from refract import ir
-from refract.emitters.api import EmitContext
-from refract.emitters.python.docstrings import PythonDocstrings
-from refract.emitters.python.environment import make_environment
+from refract.emitters.ports import EmitContext
+from refract.emitters.python.doc_comments import PythonDocComments
 from refract.emitters.python.format import RuffFormatter
 from refract.emitters.python.naming import PythonNaming
 from refract.emitters.python.surfaces.client import ClientSurface
 from refract.emitters.python.surfaces.requests import RequestsSurface
 from refract.emitters.python.surfaces.root_client import RootClientSurface
+from refract.emitters.python.templating import make_template_environment
 from refract.emitters.python.types import PythonTypeMapper
 from refract.ir.types import ListType, RefType
 
@@ -133,7 +133,7 @@ def activate(func):
 def _write_pkg(tmp_path):
     """Generate `nestedrefpkg/{models,_requests,client}.py` + root `client.py`, plus the
     `runtime`/`base` shims bridging refract's reference runtime (mirrors `test_d_core_runs.py`)."""
-    parts = (PythonNaming(), PythonTypeMapper(), PythonDocstrings(), make_environment())
+    parts = (PythonNaming(), PythonTypeMapper(), PythonDocComments(), make_template_environment())
     fmt = RuffFormatter()
     ctx = EmitContext(package_root="nestedrefpkg", config=_CONFIG)
 
@@ -183,9 +183,9 @@ def test_generated_client_test_for_nested_list_ref_body_imports_and_runs_clean(
     # existing `surfaces/test_tests.py` convention.
 
     _pkg, ctx, parts = _write_pkg(tmp_path)
-    naming, type_mapper, docstrings, env = parts
+    naming, type_mapper, doc_comments, env = parts
     source = RuffFormatter().format(
-        TestsSurface(naming, type_mapper, docstrings, env).emit(_RESOURCE, ctx)
+        TestsSurface(naming, type_mapper, doc_comments, env).emit(_RESOURCE, ctx)
     )
 
     # the regression this task fixes: BOTH classes constructed in the authored `call` are

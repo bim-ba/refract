@@ -12,8 +12,8 @@ import re
 import pytest
 
 from refract import ir
-from refract.emitters.api import EmitContext
-from refract.emitters.python.docstrings import PythonDocstrings
+from refract.emitters.ports import EmitContext
+from refract.emitters.python.doc_comments import PythonDocComments
 from refract.emitters.python.naming import PythonNaming
 from refract.emitters.python.resolve import resolve_tests
 from refract.emitters.python.types import PythonTypeMapper
@@ -68,8 +68,8 @@ def ctx() -> EmitContext:
 
 
 @pytest.fixture
-def parts() -> tuple[PythonNaming, PythonTypeMapper, PythonDocstrings]:
-    return PythonNaming(), PythonTypeMapper(), PythonDocstrings()
+def parts() -> tuple[PythonNaming, PythonTypeMapper, PythonDocComments]:
+    return PythonNaming(), PythonTypeMapper(), PythonDocComments()
 
 
 def test_resolve_tests_client_op_without_response_model_omits_none_import(ctx, parts):
@@ -198,7 +198,7 @@ def _cli_only_op() -> ir.Operation:
         path="widgets",
         operation_id="widgets_get",
         response_model="Widget",
-        cli=ir.CliMeta(name="get", documentation="Get a widget."),
+        cli=ir.CLICommand(name="get", documentation="Get a widget."),
         tests=(case,),
     )
 

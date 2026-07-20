@@ -1,9 +1,9 @@
 import jinja2
 import pytest
 
-from refract.emitters.python.environment import make_environment
+from refract.emitters.python.templating import make_template_environment
 
-env = make_environment()
+env = make_template_environment()
 
 
 def test_strict_undefined_raises_on_missing():

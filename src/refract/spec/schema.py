@@ -12,7 +12,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-__all__ = ["ClientConfigNode", "ResourceSpec", "SharedModelsSpec"]
+__all__ = ["ClientConfigSpec", "ResourceSpec", "SharedModelsSpec"]
 
 
 class _Spec(BaseModel):
@@ -71,7 +71,7 @@ class RequireFoundSpec(_Spec):
     message: str
 
 
-class McpSpec(_Spec):
+class MCPToolSpec(_Spec):
     name: str
     safety: Literal["RO", "WRITE", "WRITE_IDEMPOTENT", "DESTRUCTIVE"]
     title: str
@@ -79,7 +79,7 @@ class McpSpec(_Spec):
     require_found: RequireFoundSpec | None = None
 
 
-class CliSpec(_Spec):
+class CLICommandSpec(_Spec):
     name: str
     documentation: str
 
@@ -132,8 +132,8 @@ class OperationSpec(_Spec):
     params: list[ParamSpec] = Field(default_factory=list)
     body: BodySpec | None = None
     responses: dict[int, ResponseSpec]
-    mcp: McpSpec
-    cli: CliSpec | None = None
+    mcp: MCPToolSpec
+    cli: CLICommandSpec | None = None
     tests: list[TestSpec] = Field(default_factory=list)
     handler: str | None = None
 
@@ -171,40 +171,40 @@ class SharedModelsSpec(_Spec):
 # ------------------------------------------------------------------------- client.yaml nodes
 
 
-class AuthInputNode(_Spec):
+class AuthInputSpec(_Spec):
     """One named credential input; the input NAME is the mapping key (loader threads it in)."""
 
     env: str | None = None  # env var name; None -> must be passed explicitly
 
 
-class HeaderAuthNode(_Spec):
+class HeaderAuthSpec(_Spec):
     """Single templated header, e.g. ``Authorization: Bearer {oauth_token}`` (bearer-majority)."""
 
     kind: Literal["header"] = "header"
     header: str
     template: str
-    inputs: dict[str, AuthInputNode]  # MAPPING; loader -> tuple[ir.AuthInput, ...]
+    inputs: dict[str, AuthInputSpec]  # MAPPING; loader -> tuple[ir.AuthInput, ...]
 
 
-class MultiHeaderAuthNode(_Spec):
+class MultiHeaderAuthSpec(_Spec):
     """>=1 templated headers (Yandex ``OAuth {oauth_token}`` + ``X-Org-Id``)."""
 
     kind: Literal["multi_header"] = "multi_header"
     headers: dict[str, str]  # MAPPING; loader -> tuple[(name, template), ...]
-    inputs: dict[str, AuthInputNode]  # MAPPING; loader -> tuple[ir.AuthInput, ...]
+    inputs: dict[str, AuthInputSpec]  # MAPPING; loader -> tuple[ir.AuthInput, ...]
 
 
-AuthSchemeNode = Annotated[HeaderAuthNode | MultiHeaderAuthNode, Field(discriminator="kind")]
+AuthSchemeSpec = Annotated[HeaderAuthSpec | MultiHeaderAuthSpec, Field(discriminator="kind")]
 
 
-class ServerNode(_Spec):
+class ServerSpec(_Spec):
     base_url: str
 
 
-class ClientConfigNode(_Spec):
+class ClientConfigSpec(_Spec):
     """Mirrors client.yaml: server + default headers + named auth schemes."""
 
     name: str
-    server: ServerNode
+    server: ServerSpec
     default_headers: dict[str, str] = Field(default_factory=dict)  # MAPPING -> tuple-of-pairs
-    auth: dict[str, AuthSchemeNode] = Field(default_factory=dict)  # scheme-name -> scheme
+    auth: dict[str, AuthSchemeSpec] = Field(default_factory=dict)  # scheme-name -> scheme
