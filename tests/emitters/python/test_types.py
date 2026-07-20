@@ -1,4 +1,4 @@
-from refract.emitters.api import Import
+from refract.emitters.ports import Import
 from refract.emitters.python.types import PythonTypeMapper
 from refract.ir.types import ListType, LiteralType, MapType, RefType, ScalarType, UnionType
 

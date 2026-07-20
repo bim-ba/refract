@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, assert_never
 
-from refract.emitters.api import Import
+from refract.emitters.ports import Import
 from refract.emitters.python.resolve._common import (
     indent_lines,
     render_imports,
@@ -18,7 +18,7 @@ from refract.spec import SpecError
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.api import Docstrings, EmitContext, Naming
+    from refract.emitters.ports import DocComments, EmitContext, Naming
 
 
 def _auth_value(template: str, inputs: tuple[ir.AuthInput, ...]) -> str:
@@ -58,7 +58,7 @@ def resolve_root_client(
     resources: tuple[ir.Resource, ...],
     ctx: EmitContext,
     naming: Naming,
-    docstrings: Docstrings,
+    doc_comments: DocComments,
 ) -> RootClientPageView:
     """IR + ClientConfig -> RootClientPageView: the composition root. Runs once over ALL
     resources (per-API invariant: shared ``domain`` + ``security``, so read from ``resources[0]``).
@@ -91,7 +91,7 @@ def resolve_root_client(
     from_env_lines = (
         "@classmethod",
         f"def from_env(cls) -> {client_class}:",
-        *docstrings.render(
+        *doc_comments.render(
             "The single sanctioned env-read point (composition root); components never read env.",
             "    ",
         ),
@@ -118,14 +118,14 @@ def resolve_root_client(
     )
     title = resources[0].domain_title
     return RootClientPageView(
-        doc_block=docstrings.render(
+        doc_block=doc_comments.render(
             f"{title} client - the composition root (aggregates resources, owns transport + auth).",
             "",
         ),
         header_lines=("from __future__ import annotations",),
         import_lines=imports,
         class_header=f"class {client_class}:",
-        class_doc_lines=docstrings.render(f"Root client for the {title} API.", "    "),
+        class_doc_lines=doc_comments.render(f"Root client for the {title} API.", "    "),
         methods=(
             "\n".join(indent_lines(init_lines, "    ")),
             "\n".join(indent_lines(from_env_lines, "    ")),

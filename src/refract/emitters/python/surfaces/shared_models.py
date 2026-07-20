@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from refract.emitters.api import DomainEmitter, EmitContext
+from refract.emitters.ports import DomainEmitter, EmitContext
 from refract.emitters.python.resolve import resolve_shared_models
 
 if TYPE_CHECKING:
     from jinja2 import Environment
 
     from refract import ir
-    from refract.emitters.api import Docstrings, Naming, TypeMapper
+    from refract.emitters.ports import DocComments, Naming, TypeMapper
 
 
 class SharedModelsSurface(DomainEmitter):
@@ -20,12 +20,12 @@ class SharedModelsSurface(DomainEmitter):
     name = "shared_models"
 
     def __init__(
-        self, naming: Naming, type_mapper: TypeMapper, docstrings: Docstrings, env: Environment
+        self, naming: Naming, type_mapper: TypeMapper, doc_comments: DocComments, env: Environment
     ) -> None:
-        self._naming, self._type_mapper, self._docstrings, self._env = (
+        self._naming, self._type_mapper, self._doc_comments, self._env = (
             naming,
             type_mapper,
-            docstrings,
+            doc_comments,
             env,
         )
 
@@ -37,6 +37,6 @@ class SharedModelsSurface(DomainEmitter):
 
     def emit(self, resources: tuple[ir.Resource, ...], ctx: EmitContext) -> str:
         page = resolve_shared_models(
-            resources, ctx, self._naming, self._type_mapper, self._docstrings
+            resources, ctx, self._naming, self._type_mapper, self._doc_comments
         )
         return self._env.get_template("models.jinja").render(page=page)

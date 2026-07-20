@@ -3,9 +3,9 @@ import ast
 import pytest
 
 from refract import ir
-from refract.emitters.api import EmitContext, Import
+from refract.emitters.ports import EmitContext, Import
 from refract.emitters.python import resolve
-from refract.emitters.python.docstrings import PythonDocstrings
+from refract.emitters.python.doc_comments import PythonDocComments
 from refract.emitters.python.naming import PythonNaming
 from refract.emitters.python.types import PythonTypeMapper
 from refract.ir.types import UnionType
@@ -13,7 +13,7 @@ from refract.spec import SpecError
 
 NAMING = PythonNaming()
 TYPE_MAPPER = PythonTypeMapper()
-DOCSTRINGS = PythonDocstrings()
+DOCSTRINGS = PythonDocComments()
 CTX = EmitContext(package_root="ycli.yandex.tracker")
 
 
@@ -278,7 +278,7 @@ def test_mcp_tool_guards_shadowed_identifiers():
     """The guard flows through `signature_and_call` into the MCP tool signature + client call."""
     op = _shadowed_op().model_copy(
         update={
-            "mcp": ir.McpMeta(
+            "mcp": ir.MCPTool(
                 name="widget_fetch",
                 safety=ir.Safety.RO,
                 title="Fetch a widget",
@@ -326,7 +326,7 @@ def test_resolve_mcp_omits_response_model_import_when_none():
         path="widget/{id}",
         operation_id="widget_delete",
         params=(ir.Param(name="id", loc="path", type=_STRING),),
-        mcp=ir.McpMeta(
+        mcp=ir.MCPTool(
             name="widget_delete",
             safety=ir.Safety.DESTRUCTIVE,
             title="Delete a widget",
@@ -491,7 +491,7 @@ def test_resolve_tests_cli_only_op_drops_client_surface():
         path="widgets",
         operation_id="widgets_list",
         response_model="WidgetList",
-        cli=ir.CliMeta(name="list", documentation="List widgets."),
+        cli=ir.CLICommand(name="list", documentation="List widgets."),
         tests=(case,),
     )
     res = ir.Resource(
@@ -538,7 +538,7 @@ def test_resolve_tests_guard_only_op_emits_no_payload():
         method="DELETE",
         path="widgets/{id}",
         operation_id="widgets_delete",
-        mcp=ir.McpMeta(
+        mcp=ir.MCPTool(
             name="delete", safety=ir.Safety.DESTRUCTIVE, title="Delete", documentation="Delete."
         ),
         tests=(case,),

@@ -1,7 +1,7 @@
 from refract import ir
-from refract.emitters.python.layout import PythonLayout
+from refract.emitters.python.file_layout import PythonFileLayout
 
-lay = PythonLayout()
+lay = PythonFileLayout()
 _res = ir.Resource(domain="tracker", resource="me", security="s", models=(), operations=())
 
 

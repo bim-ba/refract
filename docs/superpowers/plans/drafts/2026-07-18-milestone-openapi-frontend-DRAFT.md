@@ -26,14 +26,14 @@ own doc back out to OpenAPI is a separate, already-scoped byproduct (`design.md`
 ## 3. Scope IN
 
 - An OpenAPI 3.1 parser + mapper living behind the `Frontend` seam (parallel to
-  `src/refract/spec/loader.py` + `spec/nodes.py`), producing the same `ir.Resource` /
+  `src/refract/spec/loader.py` + `spec/schema.py`), producing the same `ir.Resource` /
   `ir.ClientConfig` the neutral-YAML frontend produces today.
 - A `refract scaffold <openapi.yaml>` Typer command (sibling to today's `generate` command in
   `src/refract/cli.py`) that derives a spec scaffold from a real document.
 - Mapping table (mechanically derivable slice, per `artifacts/13-openapi-interop.md` section 3):
   - `paths` + method -> `ir.Operation` (method/path/params already 1:1).
   - `parameters` (`in: path|query`) -> `ir.Param` directly; `in: header` needs a small IR gap closed
-    first - `ParamSpec.loc` is `Literal["path", "query"]` only today (`spec/nodes.py:74`), a gap
+    first - `ParamSpec.loc` is `Literal["path", "query"]` only today (`spec/schema.py`, `ParamSpec.loc`), a gap
     `artifacts/13` already flags (its table, priority Low, #8).
   - `components/schemas` -> `ir.Model`/`ir.Field`, reusing `datamodel-code-generator` for the
     pure-data slice (`artifacts/03-external-landscape.md`'s "KEEP as the models emitter" verdict) -
@@ -42,7 +42,7 @@ own doc back out to OpenAPI is a separate, already-scoped byproduct (`design.md`
   - `securitySchemes` + `security` -> `ir.AuthScheme`; `http:bearer` / `apiKey:header` map onto
     today's `HeaderAuth`/`MultiHeaderAuth` directly (`spec/loader.py:189-193`); other scheme types
     fall outside current coverage (see Dependencies).
-  - `operationId` -> `Operation.operation_id` (already a real IR field, `spec/nodes.py:113` -
+  - `operationId` -> `Operation.operation_id` (already a real IR field, `spec/schema.py`, `OperationSpec.operation_id` -
     the gap `artifacts/13` flagged when it was written is already closed in current code).
 - Validate the scaffold's mechanically-derivable output on 2-3 real OpenAPI docs end-to-end through
   `refract generate --check`.
@@ -122,7 +122,7 @@ see open question Q4.
 
 | # | Question | Why it's genuinely open |
 |---|---|---|
-| Q1 | **Placeholder representation vs. the strict spec schema.** `nodes.McpSpec.safety` is a required `Literal["RO","WRITE","WRITE_IDEMPOTENT","DESTRUCTIVE"]` with no default and `extra="forbid"` on every node (`spec/nodes.py:57-63`). A scaffolded operation with no derivable safety class literally cannot produce a valid `nodes.ResourceSpec` today. Does the scaffold (a) invent a conservative default (e.g. `RO` for `GET`, loudly flagged) and let strict validation pass, (b) introduce a separate, intentionally-partial "draft spec" representation distinct from `nodes.py`, or (c) omit unscaffoldable operations from the emitted YAML entirely and print a punch-list? This is in real tension with the redesign's own fail-loud philosophy and needs an owner call. |
+| Q1 | **Placeholder representation vs. the strict spec schema.** `schema.MCPToolSpec.safety` is a required `Literal["RO","WRITE","WRITE_IDEMPOTENT","DESTRUCTIVE"]` with no default and `extra="forbid"` on every node (`spec/schema.py`, `_Spec`). A scaffolded operation with no derivable safety class literally cannot produce a valid `schema.ResourceSpec` today. Does the scaffold (a) invent a conservative default (e.g. `RO` for `GET`, loudly flagged) and let strict validation pass, (b) introduce a separate, intentionally-partial "draft spec" representation distinct from `spec/schema.py`, or (c) omit unscaffoldable operations from the emitted YAML entirely and print a punch-list? This is in real tension with the redesign's own fail-loud philosophy and needs an owner call. |
 | Q2 | **Scaffold output format.** Does `refract scaffold` emit human-editable neutral YAML (`resource.yaml`/`client.yaml`, immediately re-consumable by the existing `SpecLoader`, diffable and git-reviewable), or does the OpenAPI frontend build `ir.Resource` in-process and skip an intermediate spec file entirely? Recommend YAML output - matches the "review, then fill in" workflow `artifacts/13` describes, and keeps config visible/diffable rather than opaque in-process state. |
 | Q3 | **`datamodel-code-generator` integration depth.** Wire it in as a real dependency call feeding refract's own type mapper from day one, or spike it standalone once (generate pydantic files, hand-port the field:type mapping) and only formalize the integration on a second real anchor doc (rule of three)? |
 | Q4 | **Anchor-doc version compliance.** Some widely-cited "OpenAPI" docs from major vendors are still 3.0.x, not 3.1 (3.1's `nullable`-removal and JSON-Schema-2020-12 alignment are breaking per `artifacts/13-openapi-interop.md` section 1). Which 2-3 docs are confirmed 3.1 today, and does the importer need to accept 3.0.x too (a narrower normalize-up shim, distinct from the deferred Swagger-2.0 case)? |

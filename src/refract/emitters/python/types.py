@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import assert_never
 
-from refract.emitters.api import Import, RenderedType, TypeMapper
+from refract.emitters.ports import Import, RenderedType, TypeMapper
 from refract.ir.types import (
     ListType,
     LiteralType,

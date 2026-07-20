@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from refract.spec.nodes import ClientConfigNode, ResourceSpec
+from refract.spec.schema import ClientConfigSpec, ResourceSpec
 
 
 def test_unknown_key_rejected():
@@ -53,7 +53,7 @@ def test_field_type_stays_raw_string():
 
 
 def test_client_config_node_parses_multi_header_auth():
-    node = ClientConfigNode.model_validate(
+    node = ClientConfigSpec.model_validate(
         {
             "name": "tracker",
             "server": {"base_url": "https://api.tracker.yandex.net/v3"},
@@ -82,6 +82,6 @@ def test_client_config_node_parses_multi_header_auth():
 
 def test_client_config_rejects_unknown_auth_kind():
     with pytest.raises(ValidationError):
-        ClientConfigNode.model_validate(
+        ClientConfigSpec.model_validate(
             {"name": "x", "server": {"base_url": "u"}, "auth": {"s": {"kind": "bogus"}}}
         )

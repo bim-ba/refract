@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from refract import ir
-from refract.emitters.api import LanguageBackend
+from refract.emitters.ports import LanguageBackend
 from refract.emitters.python.backend import python_backend as _make_python_backend
 from refract.spec import SpecLoader
 

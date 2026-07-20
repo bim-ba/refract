@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from refract.emitters.api import Layout
+from refract.emitters.ports import FileLayout
 
 if TYPE_CHECKING:
     from refract import ir
@@ -16,7 +16,7 @@ _FILENAME = {
 }
 
 
-class PythonLayout(Layout):
+class PythonFileLayout(FileLayout):
     """Map (resource, surface) -> emitted file path (decouples surface id from filename)."""
 
     def path(self, res: ir.Resource, surface: str) -> str:

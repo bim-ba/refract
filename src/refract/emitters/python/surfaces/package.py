@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from refract.emitters.api import EmitContext, SurfaceEmitter
+from refract.emitters.ports import EmitContext, SurfaceEmitter
 
 if TYPE_CHECKING:
     from refract import ir

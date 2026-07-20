@@ -8,13 +8,13 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from refract.emitters.api import EmitContext
+from refract.emitters.ports import EmitContext
 from refract.emitters.registry import get_backend
 from refract.spec import SpecError, SpecLoader
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.api import LanguageBackend
+    from refract.emitters.ports import LanguageBackend
 
 __all__ = ["Generator", "find_client_config", "find_shared_models"]
 
@@ -93,7 +93,7 @@ class Generator:
         files: dict[str, str] = {}
         for surface in self._backend.surfaces:
             if surface.applies(res):
-                path = self._backend.layout.path(res, surface.name)
+                path = self._backend.file_layout.path(res, surface.name)
                 files[path] = self._backend.formatter.format(surface.emit(res, ctx))
         return files
 
@@ -105,7 +105,7 @@ class Generator:
         files: dict[str, str] = {}
         for surface in self._backend.domain_surfaces:
             if surface.applies(resources):
-                path = self._backend.layout.path(resources[0], surface.name)
+                path = self._backend.file_layout.path(resources[0], surface.name)
                 files[path] = self._backend.formatter.format(surface.emit(resources, ctx))
         return files
 

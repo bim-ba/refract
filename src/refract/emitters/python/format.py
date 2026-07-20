@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 
-from refract.emitters.api import Formatter
+from refract.emitters.ports import Formatter
 
 _STDIN_NAME = "generated.py"
 

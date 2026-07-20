@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, assert_never
 
-from refract.emitters.api import Import
+from refract.emitters.ports import Import
 from refract.emitters.python.resolve._common import (
     param_decl,
     py_str,
@@ -15,7 +15,7 @@ from refract.spec import SpecError
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.api import Docstrings, EmitContext, Naming, TypeMapper
+    from refract.emitters.ports import DocComments, EmitContext, Naming, TypeMapper
 
 _GROUP_DOC = "Group anchor - forces subcommand dispatch (no eager DI, so --help stays cred-free)."
 
@@ -110,7 +110,7 @@ def _cli_command(
     ctx: EmitContext,
     naming: Naming,
     type_mapper: TypeMapper,
-    docstrings: Docstrings,
+    doc_comments: DocComments,
 ) -> tuple[str, list[Import]]:
     """The finished text (+ model imports) for one ``@app.command()`` leaf.
 
@@ -132,7 +132,7 @@ def _cli_command(
     lines = [
         "@app.command()",
         f"def {meta.name}(ctx: typer.Context{signature_tail}) -> None:",
-        *docstrings.render(meta.documentation, "    "),
+        *doc_comments.render(meta.documentation, "    "),
         "    app_ctx = AppContext.from_typer_context(ctx)",
         f"    Serializer.serialize({call}, app_ctx.strategy, app_ctx.console)",
     ]
@@ -144,7 +144,7 @@ def resolve_cli(
     ctx: EmitContext,
     naming: Naming,
     type_mapper: TypeMapper,
-    docstrings: Docstrings,
+    doc_comments: DocComments,
 ) -> CliPageView:
     """IR -> CliPageView: module docstring, fixed imports, body = group+callback then commands."""
     group_block = "\n".join(
@@ -162,11 +162,11 @@ def resolve_cli(
     command_imports: list[Import] = []
     for op in res.operations:
         if op.cli is not None:
-            text, cmd_imports = _cli_command(res, op, ctx, naming, type_mapper, docstrings)
+            text, cmd_imports = _cli_command(res, op, ctx, naming, type_mapper, doc_comments)
             blocks.append(text)
             command_imports += cmd_imports
     return CliPageView(
-        doc_block=docstrings.render(res.module_docs.cli, ""),
+        doc_block=doc_comments.render(res.module_docs.cli, ""),
         header_lines=("from __future__ import annotations",),
         import_lines=(
             "import typer",

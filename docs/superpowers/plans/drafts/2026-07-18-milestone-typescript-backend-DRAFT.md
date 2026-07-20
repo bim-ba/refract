@@ -27,13 +27,13 @@ milestone is also that checklist's first real test.
 
 | Piece | Mirrors (Python reference) | Notes |
 |---|---|---|
-| `refract.emitters.typescript` package | `emitters/python/{backend,naming,types,format,docstrings,layout}.py` | same file layout |
+| `refract.emitters.typescript` package | `emitters/python/{backend,naming,types,format,doc_comments,file_layout}.py` | same file layout |
 | TS `Naming` | `python/naming.py` | camelCase/PascalCase, JS reserved-word guarding, safe param names |
 | TS `TypeMapper` | `python/types.py` | `NeutralType -> TS` (string/number/boolean/unknown, `T[]`, `Record<K,V>`, ref-by-name); exhaustive `match`/`assert_never` mirrors `PythonTypeMapper._base` |
 | TS `Formatter` | `python/format.py` (wraps `ruff` via subprocess) | wraps prettier or biome via subprocess (open question) |
-| TS `Docstrings` | `python/docstrings.py` | TSDoc `/** ... */` block rendering |
-| TS `Layout` | `python/layout.py` | same (resource, surface) -> path map, `.ts` extensions, `root_client` -> `{domain}/client.ts` |
-| Per-resource surfaces: `models`, `requests`, `client`, `tests`, `package` | `surfaces/{models,requests,client,tests,package}.py` + `resolve.py` + `templates/*.jinja` | same resolver-then-Jinja-leaf split (decision #3) |
+| TS `DocComments` | `python/doc_comments.py` | TSDoc `/** ... */` block rendering |
+| TS `FileLayout` | `python/file_layout.py` | same (resource, surface) -> path map, `.ts` extensions, `root_client` -> `{domain}/client.ts` |
+| Per-resource surfaces: `models`, `requests`, `client`, `tests`, `package` | `surfaces/{models,requests,client,tests,package}.py` + `resolve/` + `templates/*.jinja` | same resolver-then-Jinja-leaf split (decision #3) |
 | Domain glue: `root_client` (`DomainEmitter`) | `surfaces/root_client.py` | aggregates resources, builds the TS client, selects the auth mechanism from `ir.ClientConfig`/`AuthScheme` |
 | TS reference runtime | `runtime/{request,session,auth,base}.py` | `Request<T>` (sans-I/O), `Session.send` over `fetch`, `HeaderAuth`/`MultiHeaderAuth` as fetch-request mutators - hand-written ONCE per decision #18 |
 | `@backend("typescript")` registration | `python/backend.py` | via the existing lazy-import registry (`emitters/registry.py`) - zero central-file edits |
@@ -59,8 +59,8 @@ allows - see Scope OUT.
 
 1. Audit the IR/surface-contract boundary for Python-specific leakage before writing any TS code
    (see Rough size/risk below - one concrete leak already found).
-2. Implement the 5 strategies (Naming, TypeMapper, Formatter, Docstrings, Layout) against
-   `emitters/api.py`'s ABCs - no surfaces yet, L0-unit-testable in isolation.
+2. Implement the 5 strategies (Naming, TypeMapper, Formatter, DocComments, FileLayout) against
+   `emitters/ports.py`'s ABCs - no surfaces yet, L0-unit-testable in isolation.
 3. Hand-write the TS reference runtime over `fetch` (Request/Session/auth mechanisms/base
    Resource) - the one-time, per-language, hand-written core (decision #18).
 4. Port `models` + `requests` per-resource surfaces (resolver + templates) - no cross-resource
@@ -97,18 +97,17 @@ runtime + a new oracle layer), comparable in scope to the original Python walkin
 (Workstream A).
 
 **Key risk - a concrete leak already found, not speculative:** `EmitContext.package_root`
-(`emitters/api.py:34`) is a Python dotted-module-path convention (e.g. `"ycli.yandex.tracker"`),
+(`emitters/ports.py:34`) is a Python dotted-module-path convention (e.g. `"ycli.yandex.tracker"`),
 and it is HARDCODED in the supposedly language-agnostic driver -
 `generation.py:22-24`'s `_package_root()` returns `f"ycli.yandex.{res.domain}"` unconditionally,
 not derived from `ClientConfig` or the target backend. Every Python surface resolver then splices
-it directly into `from {package_root}.foo import Bar`-style strings (`python/resolve.py:195, 248,
-269, 377, 705-710, 814-819`). TypeScript has no dotted-module-path import convention (relative file
+it directly into `from {package_root}.foo import Bar`-style strings (`python/resolve/`). TypeScript has no dotted-module-path import convention (relative file
 paths or bare npm specifiers instead), so this cannot be reused as-is: `_package_root` needs to
 either move out of the generic driver into a per-backend concern, or `EmitContext.package_root`
 needs a second, TS-shaped meaning layered on top. This should be resolved in phase 1 (audit), before
 any TS surface resolver is written, since every surface touches it. Secondary, unverified
 candidates worth a quick look in the same audit: `RenderedType.imports`'s `Import(module, name)`
-shape (does it generalize to TS named-vs-default exports cleanly?) and `Docstrings.render`'s
+shape (does it generalize to TS named-vs-default exports cleanly?) and `DocComments.render`'s
 line-based tuple return (TSDoc's comment shape differs from Python's triple-quote block).
 
 ## 8. Open questions
@@ -118,4 +117,4 @@ line-based tuple return (TSDoc's comment shape differs from Python's triple-quot
 | 1 | TS test framework | vitest vs `node:test` (built-in) | vitest is the ecosystem default (fast, watch mode); `node:test` has zero extra deps. Affects the `tests` surface templates + the L3 oracle's runner invocation. |
 | 2 | Formatter | prettier vs biome | biome is faster (Rust, single binary) and closer in spirit to `ruff` (one fast tool replacing a slower ecosystem standard); prettier is the incumbent most TS consumers already expect. Either way the `Formatter` ABC is one method (`format(source) -> str`). |
 | 3 | CLI/MCP surfaces | emit in TS now vs defer | Scope-OUT defaults to defer; revisit only if a concrete consumer pulls for it. |
-| 4 | Module format | ESM vs CJS (or dual-publish) | Affects `Layout` paths/extensions, the runtime's own import/export shape, and the generated root client. ESM-only is simplest and matches modern TS defaults; dual-publish adds build-step complexity this milestone likely shouldn't take on. |
+| 4 | Module format | ESM vs CJS (or dual-publish) | Affects `FileLayout` paths/extensions, the runtime's own import/export shape, and the generated root client. ESM-only is simplest and matches modern TS defaults; dual-publish adds build-step complexity this milestone likely shouldn't take on. |

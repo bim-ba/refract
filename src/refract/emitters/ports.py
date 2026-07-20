@@ -71,12 +71,12 @@ class Formatter(ABC):
     def format(self, source: str) -> str: ...
 
 
-class Docstrings(ABC):
+class DocComments(ABC):
     @abstractmethod
     def render(self, text: str | None, indent: str) -> tuple[str, ...]: ...
 
 
-class Layout(ABC):
+class FileLayout(ABC):
     @abstractmethod
     def path(self, res: ir.Resource, surface: str) -> str: ...
 
@@ -88,7 +88,7 @@ class SurfaceEmitter(ABC):
     """One PER-RESOURCE surface plugin: gates on data presence, emits UNformatted source.
 
     `name` stays a plain str (NOT an enum): dispatch is registry + `applies()`, never
-    name-compare; surface is the extension axis. A unit test enforces the name<->`Layout.path`
+    name-compare; surface is the extension axis. A unit test enforces the name<->`FileLayout.path`
     coupling (decision #22).
     """
 
@@ -126,7 +126,7 @@ class LanguageBackend:
     naming: Naming
     type_mapper: TypeMapper
     formatter: Formatter
-    docstrings: Docstrings
-    layout: Layout
+    doc_comments: DocComments
+    file_layout: FileLayout
     surfaces: tuple[SurfaceEmitter, ...]  # per-resource
     domain_surfaces: tuple[DomainEmitter, ...] = ()  # per-API glue (root_client)

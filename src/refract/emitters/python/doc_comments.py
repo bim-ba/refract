@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from refract.emitters.api import Docstrings
+from refract.emitters.ports import DocComments
 
 
-class PythonDocstrings(Docstrings):
+class PythonDocComments(DocComments):
     """Render a triple-quoted docstring block (tuple of lines) at a given indent."""
 
     def render(self, text: str | None, indent: str) -> tuple[str, ...]:
