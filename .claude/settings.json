@@ -42,7 +42,7 @@
     "ai": {
       "source": {
         "source": "github",
-        "repo": "bim-ba/ai"
+        "repo": "bim-ba-ai/marketplace"
       },
       "autoUpdate": true
     }
