@@ -19,3 +19,6 @@ artifacts/
 references/**
 !references/**/
 !references/**/README.md
+
+# .codex/config.toml is generated from the MCP config and carries live credentials.
+/.codex/config.toml
