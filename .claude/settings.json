@@ -14,8 +14,8 @@
     "skill-creator@claude-plugins-official": true,
     "superpowers@claude-plugins-official": true,
     "context7@context7-marketplace": true,
-    "core@ai": true,
-    "data@ai": true
+    "core@bim-ba": true,
+    "data@bim-ba": true
   },
   "extraKnownMarketplaces": {
     "claude-plugins-official": {
@@ -39,10 +39,10 @@
       },
       "autoUpdate": true
     },
-    "ai": {
+    "bim-ba": {
       "source": {
         "source": "github",
-        "repo": "bim-ba-ai/marketplace"
+        "repo": "bim-ba/ai"
       },
       "autoUpdate": true
     }
