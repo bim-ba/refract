@@ -9,13 +9,16 @@
     "_comment": "Committed baseline is deliberately conservative: broad reads (Read/Grep/Glob) plus a scoped, mostly-read-only Bash allowlist. Unscoped Write/Edit/Bash are intentionally NOT granted here so they prompt by default in every clone. Broader per-user permissions (git commit/push, gh pr create/merge, unscoped Write/Edit/Bash, etc.) belong in the gitignored .claude/settings.local.json -- never widen this committed file to grant them repo-wide."
   },
   "enabledPlugins": {
+    "browsing@bim-ba": true,
     "claude-md-management@claude-plugins-official": true,
-    "plugin-dev@claude-plugins-official": true,
-    "skill-creator@claude-plugins-official": true,
-    "superpowers@claude-plugins-official": true,
+    "clickhouse@bim-ba": true,
     "context7@context7-marketplace": true,
     "core@bim-ba": true,
-    "data@bim-ba": true
+    "documenting@bim-ba": true,
+    "drifts@bim-ba": true,
+    "plugin-dev@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
     "claude-plugins-official": {
