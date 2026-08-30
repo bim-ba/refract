@@ -21,6 +21,33 @@ responses** (SSE/watch/log-follow), **inbound receivers** (webhook/push delivery
 *provider*, never does interactive consent). These are declared, not force-fit. [roadmap] may add bounded
 modes later.
 
+## 0.6 Layering: the generated SDK is the core (RATIFIED · closes `#8`)
+The **neutral spec is the single source of truth** — every surface, the SDK included, derives from it. The
+SDK is the product: **models** + **sans-I/O request builders** (`_requests.py` returns a `Request(method,
+path, query, json_body, response_model)` value and performs no I/O) + a **typed client** that executes them.
+CLI and MCP are generated **thin mappers**: they delegate to the client and add only their own idiom.
+Verified shape in `examples/ycli-tracker/out` — a typer command resolves the app context and delegates in a
+single call (`Serializer.serialize(app_ctx.tracker.me.get(), …)`, `tracker/me/cli.py`); an MCP tool takes the
+client by DI and returns the delegation (`return client.priorities.create(body)`,
+`tracker/priorities/mcp.py`). Transport, pagination and error handling live once, in the client; a surface
+never re-implements them.
+**Rejected alternative:** runtime reflection over the finished SDK (no codegen for CLI/MCP). It loses the
+per-surface idiom only the spec carries — typer help texts, FastMCP `annotations`/`tags`/titles, keyword-
+shadow renames (`list_`) — and saves nothing, since the IR is already shared across emitters and `--check`
+(§14) already holds every surface to it. Deriving *more* from *less* spec is a different axis: resource-level
+specs with derived operations is `#19`.
+
+## 0.7 MCP stance: curation is spec-native, not 1:1 conversion
+refract does **not** turn an API into one tool per endpoint. What an agent sees is authored, not inferred:
+an operation with no `mcp:` facet is **never exposed** (the emitter skips it, and emits no MCP module at all
+when a resource declares none); `safety` (`RO`/`WRITE`/`WRITE_IDEMPOTENT`/`DESTRUCTIVE`) compiles into the
+FastMCP annotation class + tags; tool `name`, `title` and an **agent-oriented** `documentation` are spec data
+distinct from the CLI's (§5 carries both) and may state caveats a human CLI user never needs;
+`require_found` compiles into an empty-success guard, so a 200 that means *nothing* fails loud instead of
+handing an agent an empty object. Rationale: naive endpoint-per-tool conversion is a documented failure mode
+— bloated tool lists, ambiguous names, no safety signal (vendors' own MCP postmortems; Anthropic's *writing
+tools for agents* guidance). Curation is cheap in a spec and impossible at runtime.
+
 ## 1. File layout
 ```
 specs/
