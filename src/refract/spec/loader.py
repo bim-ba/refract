@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import re
+from string import Formatter
 from typing import TYPE_CHECKING, cast
 
 import yaml
@@ -24,7 +24,6 @@ if TYPE_CHECKING:
 __all__ = ["SpecError", "SpecLoader", "parse_neutral_type"]
 
 _SCALARS = frozenset({"string", "integer", "number", "boolean", "any"})
-_PATH_PLACEHOLDER = re.compile(r"\{([^{}]*)\}")  # one `{slot}` of an operation path
 
 
 class SpecError(Exception):
@@ -242,6 +241,36 @@ def _response_model(name: str, responses: dict[int, schema.ResponseSpec]) -> str
     return responses[min(success)].model
 
 
+def _path_placeholders(name: str, path: str) -> frozenset[str]:
+    """The `{slot}` names of `path`, read with the SAME grammar the emitter's f-string will use.
+
+    `string.Formatter` is that grammar (`{{` is an escape, not a slot), so a naive regex disagrees
+    with the emitted code exactly where it hurts: `w/{{a}}` renders the literal URL `w/{a}` and
+    substitutes nothing. Escapes and non-plain slots (`{}`, `{a.b}`, `{a:>5}`, `{a!r}`) are
+    authoring errors in a URL path, not features - reject them rather than emit a wrong client.
+    """
+    if "{{" in path or "}}" in path:
+        raise SpecError(
+            f"operation {name!r}: path {path!r} contains an escaped brace - a doubled brace "
+            "renders one literal brace in the URL and substitutes no param"
+        )
+    try:
+        slots = list(Formatter().parse(path))
+    except ValueError as error:  # unbalanced brace - the emitted f-string would not even compile
+        raise SpecError(f"operation {name!r}: path {path!r} is malformed - {error}") from error
+    names: set[str] = set()
+    for _, field, format_spec, conversion in slots:
+        if field is None:  # a trailing literal segment carries no slot
+            continue
+        if not field.isidentifier() or format_spec or conversion is not None:
+            raise SpecError(
+                f"operation {name!r}: path {path!r} has placeholder '{{{field}}}', which is not a "
+                "plain parameter name"
+            )
+        names.add(field)
+    return frozenset(names)
+
+
 def _check_path_placeholders(spec: schema.OperationSpec) -> None:
     """The `{slots}` of `path` must be EXACTLY the declared `loc: path` param names.
 
@@ -250,7 +279,7 @@ def _check_path_placeholders(spec: schema.OperationSpec) -> None:
     first call: an unbacked placeholder names a variable nobody binds, a slotless param is dead.
     Reject both at the boundary so the illegal state never reaches the IR.
     """
-    placeholders = frozenset(_PATH_PLACEHOLDER.findall(spec.path))
+    placeholders = _path_placeholders(spec.name, spec.path)
     declared = frozenset(param.name for param in spec.params if param.loc == "path")
     if placeholders != declared:
         raise SpecError(
@@ -346,7 +375,10 @@ class SpecLoader:
             spec = schema.ResourceSpec.model_validate(raw)
         except ValidationError as error:
             raise SpecError(f"{path}: spec failed validation -\n{error}") from error
-        return _resource(spec)
+        try:
+            return _resource(spec)
+        except SpecError as error:  # lowering errors name the operation/model, not the file
+            raise SpecError(f"{path}: {error}") from error
 
     @staticmethod
     def load_client_config(path: Path) -> ir.ClientConfig:
