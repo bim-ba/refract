@@ -6,7 +6,15 @@ from refract import ir
 from refract.ir.model import ObjectModel, RootListModel
 from refract.ir.types import LiteralType, RefType, ScalarType, UnionType
 from refract.spec import schema
-from refract.spec.loader import SpecError, SpecLoader, _field, _param, _resource, _response_model
+from refract.spec.loader import (
+    SpecError,
+    SpecLoader,
+    _field,
+    _operation,
+    _param,
+    _resource,
+    _response_model,
+)
 
 _EX = Path(__file__).resolve().parent.parent.parent / "examples" / "ycli-tracker"
 
@@ -195,6 +203,45 @@ def test_required_path_and_optional_query_param_load():
     query = _param(schema.ParamSpec(name="notify", loc="query", optional=True))
     assert path.loc == "path" and path.optional is False
     assert query.loc == "query" and query.optional is True
+
+
+def _op_with_path(path: str, *param_names: str) -> schema.OperationSpec:
+    """An operation whose `path` and declared `loc: path` params are chosen independently."""
+    return schema.OperationSpec(
+        name="get",
+        method="GET",
+        path=path,
+        operationId="widgets_get",
+        params=[schema.ParamSpec(name=name, loc="path") for name in param_names],
+        responses={200: schema.ResponseSpec(model="Widget")},
+        mcp=schema.MCPToolSpec(
+            name="widgets_get", safety="RO", title="Get", documentation="Get a widget."
+        ),
+    )
+
+
+def test_path_placeholder_without_declared_param_raises_spec_error():
+    """I6: the emitter renders `path` as an f-string over the path params, so an unbacked
+    placeholder compiles and raises `NameError` on the first call - reject it at the boundary."""
+    spec = _op_with_path("widgets/{widget_id}/parts/{part_id}", "gadget_id")
+    with pytest.raises(SpecError, match=r"'get'.*part_id.*gadget_id"):
+        _operation(spec)
+
+
+def test_declared_path_param_without_placeholder_raises_spec_error():
+    """The mirror direction: a declared path param no `{...}` slot consumes is dead and silent."""
+    spec = _op_with_path("widgets/{widget_id}", "widget_id", "part_id")
+    with pytest.raises(SpecError, match=r"'get'.*widget_id.*part_id"):
+        _operation(spec)
+
+
+def test_matching_path_placeholders_and_params_load():
+    """Positive control: two placeholders, two declared params, declaration order irrelevant."""
+    operation = _operation(
+        _op_with_path("widgets/{widget_id}/parts/{part_id}", "part_id", "widget_id")
+    )
+    assert operation.path == "widgets/{widget_id}/parts/{part_id}"
+    assert {param.name for param in operation.params} == {"widget_id", "part_id"}
 
 
 def test_undiscriminated_oneof_lowers_to_union_of_mixed_type_exprs():

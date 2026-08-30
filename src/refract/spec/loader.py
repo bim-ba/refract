@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, cast
 
 import yaml
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
 __all__ = ["SpecError", "SpecLoader", "parse_neutral_type"]
 
 _SCALARS = frozenset({"string", "integer", "number", "boolean", "any"})
+_PATH_PLACEHOLDER = re.compile(r"\{([^{}]*)\}")  # one `{slot}` of an operation path
 
 
 class SpecError(Exception):
@@ -240,7 +242,25 @@ def _response_model(name: str, responses: dict[int, schema.ResponseSpec]) -> str
     return responses[min(success)].model
 
 
+def _check_path_placeholders(spec: schema.OperationSpec) -> None:
+    """The `{slots}` of `path` must be EXACTLY the declared `loc: path` param names.
+
+    Every surface renders the path as an f-string over the path params, so a mismatch in either
+    direction still imports (an f-string body is evaluated on call) and raises `NameError` on the
+    first call: an unbacked placeholder names a variable nobody binds, a slotless param is dead.
+    Reject both at the boundary so the illegal state never reaches the IR.
+    """
+    placeholders = frozenset(_PATH_PLACEHOLDER.findall(spec.path))
+    declared = frozenset(param.name for param in spec.params if param.loc == "path")
+    if placeholders != declared:
+        raise SpecError(
+            f"operation {spec.name!r}: path {spec.path!r} has placeholders {sorted(placeholders)} "
+            f"but declares path params {sorted(declared)} - the two sets must match exactly"
+        )
+
+
 def _operation(spec: schema.OperationSpec) -> ir.Operation:
+    _check_path_placeholders(spec)
     return ir.Operation(
         name=spec.name,
         method=spec.method,
