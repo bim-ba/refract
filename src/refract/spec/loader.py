@@ -158,9 +158,14 @@ def _synthesize_discriminators(
     UNDISCRIMINATED `oneof` (discriminator None) synthesizes nothing - its labels are
     documentation only. Standalone (built models + their specs in, models out) so Task 9's
     `load_shared_models` can reuse it verbatim.
+
+    Several holders may discriminate over the SAME variant set, so injection is keyed by
+    `(variant, discriminator)`: an identical label repeats no field, while a DIFFERENT label for
+    that key is a spec contradiction (one variant cannot carry two tags) and fails loud.
     """
     by_name = {model.name: model for model in models}
     injected: dict[str, list[ir.Field]] = {}  # variant model name -> synthetic tag fields
+    labelled: dict[tuple[str, str], str] = {}  # (variant, discriminator) -> label already injected
     for model_spec in specs:
         for field_spec in model_spec.fields:
             oneof = field_spec.oneof
@@ -173,6 +178,15 @@ def _synthesize_discriminators(
                         f"field {field_spec.name!r}: discriminated-union variant "
                         f"{target!r} is not a declared model"
                     )
+                previous = labelled.get((target, oneof.discriminator))
+                if previous == label:
+                    continue  # same holder-agnostic tag, already injected
+                if previous is not None:
+                    raise SpecError(
+                        f"variant {target!r}: discriminator {oneof.discriminator!r} gets "
+                        f"conflicting labels {previous!r} and {label!r} from different unions"
+                    )
+                labelled[target, oneof.discriminator] = label
                 injected.setdefault(target, []).append(
                     ir.Field(name=oneof.discriminator, type=LiteralType(value=label))
                 )

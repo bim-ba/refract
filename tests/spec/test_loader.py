@@ -465,3 +465,75 @@ def test_discriminated_variant_naming_non_object_model_raises():
     )
     with pytest.raises(SpecError, match="must be an object model"):
         _resource(spec)
+
+
+def _pet_holder(name: str, field_name: str) -> schema.ModelSpec:
+    """A union holder over the SAME Cat/Dog variant set - two of these share one variant set."""
+    return schema.ModelSpec(
+        name=name,
+        fields=[
+            schema.FieldSpec(
+                name=field_name,
+                oneof=schema.OneOfSpec(
+                    discriminator="kind", variants={"cat": "ref<Cat>", "dog": "ref<Dog>"}
+                ),
+            )
+        ],
+    )
+
+
+def test_two_holders_over_one_variant_set_synthesize_one_tag_each():
+    """Two holders discriminating over the SAME variants must inject each variant's tag ONCE -
+    the undeduped append gave every variant N copies of `kind` (one per holder)."""
+    cat = schema.ModelSpec(
+        name="Cat", fields=[schema.FieldSpec(name="lives", type="integer", optional=True)]
+    )
+    dog = schema.ModelSpec(
+        name="Dog", fields=[schema.FieldSpec(name="breed", type="string", optional=True)]
+    )
+    spec = schema.ResourceSpec(
+        domain="notion",
+        resource="blocks",
+        security="tok",
+        models=[cat, dog, _pet_holder("Owner", "pet"), _pet_holder("Shelter", "resident")],
+        operations=[_minimal_op()],
+    )
+    res = _resource(spec)
+    for variant_name, label in (("Cat", "cat"), ("Dog", "dog")):
+        variant = res.model(variant_name)
+        assert isinstance(variant, ObjectModel)  # narrow the model union before field access
+        tags = [field for field in variant.fields if field.name == "kind"]
+        assert len(tags) == 1  # one holder or ten, the tag is injected exactly once
+        assert tags[0].type == LiteralType(value=label)
+
+
+def test_holders_labelling_one_variant_differently_raise():
+    """Two holders tagging the SAME variant with DIFFERENT labels is a spec contradiction, not a
+    duplicate - fail loud naming both labels instead of silently keeping either."""
+    cat = schema.ModelSpec(
+        name="Cat", fields=[schema.FieldSpec(name="lives", type="integer", optional=True)]
+    )
+    dog = schema.ModelSpec(
+        name="Dog", fields=[schema.FieldSpec(name="breed", type="string", optional=True)]
+    )
+    # same variant set as `_pet_holder`, but Cat is labelled `feline` here and `cat` there
+    contradicting = schema.ModelSpec(
+        name="Shelter",
+        fields=[
+            schema.FieldSpec(
+                name="resident",
+                oneof=schema.OneOfSpec(
+                    discriminator="kind", variants={"feline": "ref<Cat>", "dog": "ref<Dog>"}
+                ),
+            )
+        ],
+    )
+    spec = schema.ResourceSpec(
+        domain="notion",
+        resource="blocks",
+        security="tok",
+        models=[cat, dog, _pet_holder("Owner", "pet"), contradicting],
+        operations=[_minimal_op()],
+    )
+    with pytest.raises(SpecError, match="conflicting labels 'cat' and 'feline'"):
+        _resource(spec)
