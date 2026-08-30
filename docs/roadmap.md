@@ -1,28 +1,34 @@
 # refract — roadmap & build state
 
 > Resume-here doc. For the design, see `design.md`; for the rationale/validation, see `research/`.
-> Last updated after Milestone A.2 (2 resources byte-identical, unpushed).
+> Last updated after PR #9 — public repo, milestones A · A.2 · P0 · P1 merged.
 
 ## Where we are
 
-Branch **`feat/me-walking-skeleton`** — 14 commits, `main` unborn, **nothing pushed** (first push
-is owner-approval-gated). `uv run refract generate --check` → exit 0, **10 files**, both resources
-byte-identical to real ycli (`diff -r out golden` empty). 55 tests · 100% line coverage · ruff/ty clean.
+**`main` is public and pushed** (`github.com/bim-ba/refract`) — 146 commits, PRs #1–#9 merged:
+A (walking skeleton, #1) · P0 debt-zero (#2) · P1 type-foundation (#3) · naming batch A (#4) ·
+tooling/config chores (#7, #9). `uv run refract generate --check` → exit 0, **15 files**
+(`tracker/me` 6 · `tracker/priorities` 6 · package client · 2 test modules) for the two example
+resources. **286 tests** — 278 default green, 8 opt-in `behavioral` green — 100% line+branch
+coverage · ruff/ty clean.
+
+Open issues: **#5** (discriminator synthesized twice) · **#6** (path placeholders unchecked against
+declared path params) · **#8** (architecture question: SDK as the base, CLI/MCP as mappers).
 
 ### Built so far (the `[v1]` subset, driven by what ycli's first two resources need)
 
 | Capability | Where | Proven on |
 |---|---|---|
 | Neutral spec → pydantic loader (neutral-type lowering, `ref<Model>`) → frozen IR | `loader.py`, `ir/model.py` | me, priorities |
-| Python emitters (models/client/cli/mcp/tests) + `ruff_format` post-pass | `emitters/python/*` | me (6 files), priorities (4) |
+| Python emitters (models/client/cli/mcp/tests) + `ruff_format` post-pass | `emitters/python/*` | me (6 files), priorities (6) |
 | Simple GET client; `RootModel` list (no `root:` field) | `client.py`, `models.py` | me.get, priorities.list |
 | **Body registry — `TypedModel`** (`_verb`(uplink.Body)+public split, `model_dump(by_alias=True, exclude_none=True)`) | `client.py`, IR `Body` | priorities create/edit |
 | Path + query params (`uplink.Path`/`uplink.Query(alias)=default`), PATCH, `?version=` | `client.py` | priorities.edit |
 | Models: `Field(description=)` (required+optional), model-ref types (`LocalizedName`) | `models.py` | priorities models |
 | MCP: multi-op, safety→annotation+tags (`RO`/`WRITE`/`WRITE_IDEMPOTENT`, `TAGS`/`WRITE_TAGS`), typed-body tools, `require_found` guard, keyword-shadow (`list_`) | `mcp.py` | me, priorities |
-| CLI: group + passthrough command (no params) | `cli.py` | me.get |
-| Tests: responses-stubbed auto-suite (client/cli/mcp + `require_found` guards) — **single-op only** | `tests.py` | me |
-| `refract generate --write/--check` drift gate + **data-presence surface-gating** | `generate.py`, `cli.py` | 10 files |
+| CLI: group + passthrough command, plus **Assembled writes** (flat options → nested body) | `cli.py` | me.get, priorities create/edit |
+| Tests: responses-stubbed auto-suite (client/cli/mcp + `require_found` guards) — **multi-op** (iterates every tests-bearing operation) | `tests.py` | me, priorities |
+| `refract generate --write/--check` drift gate + **data-presence surface-gating** | `generate.py`, `cli.py` | 15 files |
 
 ## Backlog / deferred debt
 
@@ -63,7 +69,7 @@ auth bootstrap.
 
 ## Next milestones (owner steers)
 
-1. **Push A + A.2** to the public repo (establish github.com/bim-ba/refract). Outward-facing → owner-gated.
+1. ~~**Push A + A.2** to the public repo (establish github.com/bim-ba/refract).~~ **Done** (PR #1).
 2. **A.3 — a fuller-CRUD resource** (e.g. `statuses`/`resolutions`: required fields + delete +
    self-contained per-resource tests). Exercises A2-1..3 with real byte-targets and closes **F2** (the
    multi-op tests emitter). Stays local, no push needed.
