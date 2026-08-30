@@ -479,17 +479,18 @@ def _dog() -> schema.ModelSpec:
     )
 
 
-def _pet_holder(name: str, field_name: str, variants: dict[str, str] | None = None):
+def _pet_holder(
+    name: str, field_name: str, variants: dict[str, str] | None = None
+) -> schema.ModelSpec:
     """A union holder over the Cat/Dog variant set - two of these share one variant set."""
+    if variants is None:  # a dict literal cannot be the parameter default (shared mutable)
+        variants = {"cat": "ref<Cat>", "dog": "ref<Dog>"}
     return schema.ModelSpec(
         name=name,
         fields=[
             schema.FieldSpec(
                 name=field_name,
-                oneof=schema.OneOfSpec(
-                    discriminator="kind",
-                    variants=variants or {"cat": "ref<Cat>", "dog": "ref<Dog>"},
-                ),
+                oneof=schema.OneOfSpec(discriminator="kind", variants=variants),
             )
         ],
     )
