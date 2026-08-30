@@ -45,7 +45,6 @@ _CREATE_CASE = ir.TestCase(
     name="widgets_client_create",
     kind=ir.TestKind.CLIENT,
     http_method="POST",
-    path="widgets",
     status=200,
     response_json={"items": [{"name": "a"}]},
     has_json=True,

@@ -95,10 +95,10 @@ operations:
     # No cli facet: the CLI emitter renders a READ command as a parameterless passthrough, which
     # would drop `owner`/`repo` and emit a call the client rejects.
     tests:
-      # The emitted `_URL_get` constant is built from the OPERATION path, so it keeps the literal
-      # `{owner}`/`{repo}` slots; the authored `path` below is not read by the tests emitter yet.
-      - {name: repos_client_get, kind: client, http_method: GET, path: repos/octocat/Hello-World,
-         status: 200,
+      # The emitted `_URL_get` constant substitutes `path_args` into the OPERATION path, the same
+      # way the client's request f-string does - so it stubs the URL this `call` really requests.
+      - {name: repos_client_get, kind: client, http_method: GET,
+         path_args: {owner: octocat, repo: Hello-World}, status: 200,
          response_json: {id: 1296269, name: Hello-World, full_name: octocat/Hello-World,
                          private: false, stargazers_count: 3785, default_branch: master},
          call: "GithubClient(github_token=\"t\").repos.get(\"octocat\", \"Hello-World\")",
@@ -134,7 +134,7 @@ operations:
     # No cli facet: same parameterless-passthrough limitation as `get` above.
     tests:
       - {name: repos_client_issues, kind: client, http_method: GET,
-         path: repos/octocat/Hello-World/issues, status: 200,
+         path_args: {owner: octocat, repo: Hello-World}, status: 200,
          response_json: [{number: 11054, title: "This should fail", state: open}],
          call: "GithubClient(github_token=\"t\").repos.issues(\"octocat\", \"Hello-World\", state=\"all\")",
          asserts: ["isinstance(repos, IssueList)", "repos.root[0].number == 11054"]}
@@ -172,7 +172,7 @@ operations:
       documentation: "Open an issue from a title and an optional body/milestone."
     tests:
       - {name: repos_client_create_issue, kind: client, http_method: POST,
-         path: repos/octocat/Hello-World/issues, status: 201,
+         path_args: {owner: octocat, repo: Hello-World}, status: 201,
          response_json: {id: 5292951135, number: 11054, title: Bug, state: open},
          call: "GithubClient(github_token=\"t\").repos.create_issue(\"octocat\", \"Hello-World\", IssueCreate(title=\"Bug\"))",
          asserts: ["isinstance(repos, Issue)", "repos.number == 11054", "repos.title == \"Bug\""]}

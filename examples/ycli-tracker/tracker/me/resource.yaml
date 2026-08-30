@@ -44,17 +44,17 @@ operations:
       # wraps the tool call in `with pytest.raises(ToolError)`, so they carry no asserts — status
       # 401 is the auth guard, status 200 the require_found empty-response guard (op.mcp.require_found
       # above). Reproduces ycli's real tests/yandex/tracker/test_me.py byte-for-byte.
-      - {name: me_client_get, kind: client, http_method: GET, path: myself, status: 200,
+      - {name: me_client_get, kind: client, http_method: GET, status: 200,
          response_json: {uid: 42, login: alice, display: "Alice A.", email: alice@example.com},
          call: "TrackerClient(oauth_token=\"t\", organization_id=\"o\").me.get()",
          asserts: ["isinstance(me, Me)", "me.login == \"alice\" and me.uid == 42"]}
-      - {name: me_cli_get, kind: cli, http_method: GET, path: myself, status: 200,
+      - {name: me_cli_get, kind: cli, http_method: GET, status: 200,
          response_json: {uid: 42, login: alice, display: "Alice A.", email: alice@example.com},
          asserts: ["res.exit_code == 0", "json.loads(res.stdout)[\"login\"] == \"alice\""]}
-      - {name: me_mcp_tool, kind: mcp, http_method: GET, path: myself, status: 200,
+      - {name: me_mcp_tool, kind: mcp, http_method: GET, status: 200,
          response_json: {uid: 42, login: alice, display: "Alice A.", email: alice@example.com},
          asserts: ["result.data.login == \"alice\""]}
-      - {name: me_mcp_auth_guard, kind: mcp_guard, http_method: GET, path: myself, status: 401,
+      - {name: me_mcp_auth_guard, kind: mcp_guard, http_method: GET, status: 401,
          response_json: {}}
-      - {name: me_mcp_empty_response_guard, kind: mcp_guard, http_method: GET, path: myself,
+      - {name: me_mcp_empty_response_guard, kind: mcp_guard, http_method: GET,
          status: 200, response_json: {}}

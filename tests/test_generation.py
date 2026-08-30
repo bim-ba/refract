@@ -218,3 +218,66 @@ def test_plan_threads_shared_models_end_to_end(tmp_path):
     assert (
         "import ObjectMeta" in cli_source and "widgets.models import ObjectMeta" not in cli_source
     )
+
+
+def test_plan_substitutes_path_args_into_the_mocked_url(tmp_path):
+    """Issue #17, from authored YAML: an operation with BOTH a `{placeholder}` path and a `tests:`
+    facet (the combination missing from the example corpus) must emit a mocked URL carrying the
+    case's `path_args`, not the literal braces of the path.
+
+    `{id}` is a shadowed name (`id_` in the emitted signature), so this also pins that the
+    substitution follows the client's own deconflict rewrite rather than a second reading of it.
+    """
+    (tmp_path / "client.yaml").write_text(
+        "name: demo\n"
+        "server:\n"
+        "  base_url: https://api.example.com\n"
+        "default_headers: {}\n"
+        "auth:\n"
+        "  tok:\n"
+        "    kind: header\n"
+        "    header: Authorization\n"
+        '    template: "Bearer {token}"\n'
+        "    inputs:\n"
+        "      token: {env: DEMO_TOKEN}\n",
+        encoding="utf-8",
+    )
+    resource_dir = tmp_path / "demo" / "widgets"
+    resource_dir.mkdir(parents=True)
+    (resource_dir / "resource.yaml").write_text(
+        "domain: demo\n"
+        "resource: widgets\n"
+        "security: tok\n"
+        "models:\n"
+        "  - name: Widget\n"
+        "    fields:\n"
+        "      - {name: key, type: string, optional: true}\n"
+        "operations:\n"
+        "  - name: get\n"
+        "    method: GET\n"
+        "    path: widgets/{id}\n"
+        "    operationId: widgets_get\n"
+        "    params:\n"
+        "      - {name: id, loc: path, type: string}\n"
+        "    responses:\n"
+        "      200: {model: Widget}\n"
+        "    mcp:\n"
+        "      name: widgets_get\n"
+        "      safety: RO\n"
+        '      title: "Get widget"\n'
+        '      documentation: "Get a widget."\n'
+        "    tests:\n"
+        "      - {name: widgets_client_get, kind: client, http_method: GET, "
+        'path_args: {id: "W-1"}, status: 200, response_json: {key: k}, '
+        "call: \"DemoClient(token='t').widgets.get('W-1')\", "
+        "asserts: ['widgets.key == \"k\"']}\n",
+        encoding="utf-8",
+    )
+
+    the_plan = Generator.for_language("python").plan(tmp_path, tmp_path / "out")
+
+    tests_source = the_plan[tmp_path / "out" / "tests" / "demo" / "test_widgets.py"]
+    assert '_URL_get = "https://api.example.com/widgets/W-1"' in tests_source
+    # and the client the test drives builds that same URL from the shadow-guarded param
+    requests_source = the_plan[tmp_path / "out" / "demo" / "widgets" / "_requests.py"]
+    assert 'path=f"widgets/{id_}"' in requests_source

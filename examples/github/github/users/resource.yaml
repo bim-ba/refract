@@ -52,19 +52,19 @@ operations:
     tests:
       # Only a parameterless op can carry cli/mcp cases: the emitter renders those calls with no
       # arguments, so every parameterized op below gets client-kind cases (authored `call`) only.
-      - {name: users_client_me, kind: client, http_method: GET, path: user, status: 200,
+      - {name: users_client_me, kind: client, http_method: GET, status: 200,
          response_json: {login: octocat, id: 583231, name: "The Octocat"},
          call: "GithubClient(github_token=\"t\").users.me()",
          asserts: ["isinstance(users, User)", "users.login == \"octocat\" and users.id == 583231"]}
-      - {name: users_cli_me, kind: cli, http_method: GET, path: user, status: 200,
+      - {name: users_cli_me, kind: cli, http_method: GET, status: 200,
          response_json: {login: octocat, id: 583231, name: "The Octocat"},
          asserts: ["res.exit_code == 0", "json.loads(res.stdout)[\"login\"] == \"octocat\""]}
-      - {name: users_mcp_me, kind: mcp, http_method: GET, path: user, status: 200,
+      - {name: users_mcp_me, kind: mcp, http_method: GET, status: 200,
          response_json: {login: octocat, id: 583231, name: "The Octocat"},
          asserts: ["result.data.login == \"octocat\""]}
-      - {name: users_mcp_auth_guard, kind: mcp_guard, http_method: GET, path: user, status: 401,
+      - {name: users_mcp_auth_guard, kind: mcp_guard, http_method: GET, status: 401,
          response_json: {}}
-      - {name: users_mcp_empty_response_guard, kind: mcp_guard, http_method: GET, path: user,
+      - {name: users_mcp_empty_response_guard, kind: mcp_guard, http_method: GET,
          status: 200, response_json: {}}
   - name: get
     method: GET
@@ -89,7 +89,10 @@ operations:
     # No cli facet: the CLI emitter renders a READ command as a parameterless passthrough, which
     # would drop `username` and emit a call the client rejects.
     tests:
-      - {name: users_client_get, kind: client, http_method: GET, path: users/octocat, status: 200,
+      # `path_args` fills the `{username}` slot of the operation path, so the mocked URL is the one
+      # the authored `call` below actually requests.
+      - {name: users_client_get, kind: client, http_method: GET,
+         path_args: {username: octocat}, status: 200,
          response_json: {login: octocat, id: 583231, html_url: "https://github.com/octocat"},
          call: "GithubClient(github_token=\"t\").users.get(\"octocat\")",
          asserts: ["isinstance(users, User)", "users.html_url == \"https://github.com/octocat\""]}

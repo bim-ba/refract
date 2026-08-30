@@ -53,6 +53,23 @@ def param_decl(
     return decl, rt.imports
 
 
+def path_template(path: str, params: tuple[ir.Param, ...], naming: Naming) -> str:
+    """The operation path with every placeholder rewritten to its guarded identifier.
+
+    `widget/{id}` -> `widget/{id_}`: the URL value is unchanged (a placeholder rename, not a wire
+    change), only the name the slot reads. This is the ONE reading of a path shared by the request
+    builder (which wraps it in an f-string) and the tests emitter (which `.format`s it with the
+    case's `path_args`), so a mocked URL can never drift from the URL the client requests. Query
+    params are never in the path, so they are not considered here.
+    """
+    for param in params:
+        if param.loc == "path":
+            safe = naming.safe_param(param.name)
+            if safe != param.name:
+                path = path.replace(f"{{{param.name}}}", f"{{{safe}}}")
+    return path
+
+
 def py_str(value: str) -> str:
     """A safely-quoted Python string literal for free text (escapes quotes/backslashes/newlines).
 

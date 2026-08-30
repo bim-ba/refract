@@ -236,12 +236,29 @@ def _cli(spec: schema.CLICommandSpec | None) -> ir.CLICommand | None:
     return None if spec is None else ir.CLICommand(name=spec.name, documentation=spec.documentation)
 
 
-def _test(spec: schema.TestSpec) -> ir.TestCase:
+def _test(spec: schema.TestSpec, operation: schema.OperationSpec) -> ir.TestCase:
+    """One authored fixture -> ``ir.TestCase``, with its ``path_args`` checked against the
+    operation's declared path params.
+
+    The tests emitter builds the mocked URL by substituting ``path_args`` into the operation path
+    (through the same helper the client's request f-string is built from). A missing value would
+    leave a literal ``{placeholder}`` in the stubbed URL - a URL the generated client can never
+    request, so the generated test could only ever fail; a surplus value names a param that does
+    not exist. Reject both here, where the file and the operation are still nameable.
+    """
+    declared = frozenset(param.name for param in operation.params if param.loc == "path")
+    provided = frozenset(spec.path_args)
+    if provided != declared:
+        raise SpecError(
+            f"operation {operation.name!r}: test {spec.name!r} provides path_args "
+            f"{sorted(provided)} but the operation declares path params {sorted(declared)} - "
+            "the two sets must match exactly or the mocked URL cannot be substituted"
+        )
     return ir.TestCase(
         name=spec.name,
         kind=spec.kind,  # str -> ir.TestKind StrEnum (pydantic coerces)
         http_method=spec.http_method,
-        path=spec.path,
+        path_args=tuple(sorted(spec.path_args.items())),  # canonical order -> comparable cases
         status=spec.status,
         response_json=spec.response_json,
         has_json=spec.has_json,
@@ -311,8 +328,25 @@ def _check_path_placeholders(spec: schema.OperationSpec) -> None:
         )
 
 
+def _check_test_path_args_agree(operation_name: str, tests: tuple[ir.TestCase, ...]) -> None:
+    """Every test case of one operation must substitute the SAME path values.
+
+    The tests emitter binds one ``_URL_<operation>`` constant per operation and every case stubs
+    it, so two cases disagreeing on ``path_args`` would silently give one of them a mocked URL its
+    own call never requests - the very defect substitution is here to remove.
+    """
+    distinct = {case.path_args for case in tests}
+    if len(distinct) > 1:
+        raise SpecError(
+            f"operation {operation_name!r}: test cases disagree on path_args {sorted(distinct)} - "
+            "every case of one operation shares a single mocked URL"
+        )
+
+
 def _operation(spec: schema.OperationSpec) -> ir.Operation:
     _check_path_placeholders(spec)
+    tests = tuple(_test(test, spec) for test in spec.tests)
+    _check_test_path_args_agree(spec.name, tests)
     return ir.Operation(
         name=spec.name,
         method=spec.method,
@@ -324,7 +358,7 @@ def _operation(spec: schema.OperationSpec) -> ir.Operation:
         documentation=spec.documentation,
         mcp=_mcp(spec.mcp),
         cli=_cli(spec.cli),
-        tests=tuple(_test(test) for test in spec.tests),
+        tests=tests,
         handler=spec.handler,
     )
 

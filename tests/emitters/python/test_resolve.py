@@ -478,7 +478,6 @@ def test_resolve_tests_cli_only_op_drops_client_surface():
         name="widgets_list_cli",
         kind=ir.TestKind.CLI,
         http_method="GET",
-        path="widgets",
         status=200,
         response_json=[],
         has_json=True,
@@ -526,7 +525,7 @@ def test_resolve_tests_guard_only_op_emits_no_payload():
         name="widgets_delete_guard",
         kind=ir.TestKind.MCP_GUARD,
         http_method="DELETE",
-        path="widgets/x",
+        path_args=(("id", "x"),),  # the op's `{id}` slot - substituted into the mocked URL
         status=404,
         response_json={"error": "not_found"},
         has_json=True,
@@ -538,6 +537,7 @@ def test_resolve_tests_guard_only_op_emits_no_payload():
         method="DELETE",
         path="widgets/{id}",
         operation_id="widgets_delete",
+        params=(ir.Param(name="id", loc="path", type=ir.ScalarType(scalar="string")),),
         mcp=ir.MCPTool(
             name="delete", safety=ir.Safety.DESTRUCTIVE, title="Delete", documentation="Delete."
         ),
@@ -554,6 +554,7 @@ def test_resolve_tests_guard_only_op_emits_no_payload():
     )
     page = resolve.resolve_tests(res, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
     assert not any(constant.startswith("_PAYLOAD_") for constant in page.constants)
+    assert '_URL_delete = "https://api.example/widgets/x"' in page.constants
 
 
 def test_resolve_tests_raises_without_client_config(me_resource):
