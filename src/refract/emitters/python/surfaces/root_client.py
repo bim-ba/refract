@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from refract.emitters.ports import DomainEmitter, EmitContext
-from refract.emitters.python.resolve import resolve_root_client
+from refract.emitters.python.resolve.root_client import resolve_root_client
 
 if TYPE_CHECKING:
     from jinja2 import Environment

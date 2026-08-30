@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from refract.emitters.ports import EmitContext, SurfaceEmitter
-from refract.emitters.python.resolve import resolve_tests
+from refract.emitters.python.resolve.tests import resolve_tests
 
 if TYPE_CHECKING:
     from jinja2 import Environment

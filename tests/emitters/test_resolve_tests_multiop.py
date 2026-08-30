@@ -15,7 +15,7 @@ from refract import ir
 from refract.emitters.ports import EmitContext
 from refract.emitters.python.doc_comments import PythonDocComments
 from refract.emitters.python.naming import PythonNaming
-from refract.emitters.python.resolve import resolve_tests
+from refract.emitters.python.resolve.tests import resolve_tests
 from refract.emitters.python.types import PythonTypeMapper
 
 

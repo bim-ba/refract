@@ -1,7 +1,8 @@
 from refract import ir
 from refract.emitters.python.doc_comments import PythonDocComments
 from refract.emitters.python.naming import PythonNaming
-from refract.emitters.python.resolve import _client_method, _request_function
+from refract.emitters.python.resolve.client import _client_method
+from refract.emitters.python.resolve.requests import _request_function
 from refract.emitters.python.types import PythonTypeMapper
 from refract.ir.types import ScalarType
 

@@ -36,7 +36,7 @@ def test_resource_referencing_shared_model_imports_from_shared_module():
     from refract.emitters.ports import EmitContext
     from refract.emitters.python.doc_comments import PythonDocComments
     from refract.emitters.python.naming import PythonNaming
-    from refract.emitters.python.resolve import resolve_models
+    from refract.emitters.python.resolve.models import resolve_models
     from refract.emitters.python.types import PythonTypeMapper
     from refract.ir import Field, ObjectModel, Resource
     from refract.ir.types import RefType
@@ -67,7 +67,7 @@ def test_resource_referencing_shared_model_in_container_imports_from_shared_modu
     from refract.emitters.ports import EmitContext
     from refract.emitters.python.doc_comments import PythonDocComments
     from refract.emitters.python.naming import PythonNaming
-    from refract.emitters.python.resolve import resolve_models
+    from refract.emitters.python.resolve.models import resolve_models
     from refract.emitters.python.types import PythonTypeMapper
     from refract.ir import Field, ObjectModel, Resource
     from refract.ir.types import ListType, RefType
