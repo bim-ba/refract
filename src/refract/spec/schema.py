@@ -112,12 +112,17 @@ class BodySpec(_Spec):
 
 
 class TestSpec(_Spec):
-    """One authored test fixture - all nine ``ir.TestCase`` fields, each with a safe default."""
+    """One authored test fixture - all nine ``ir.TestCase`` fields, each with a safe default.
+
+    ``path_args`` maps each declared ``loc: path`` param of the operation to the literal URL
+    segment this case exercises (``{priority_id: "1"}``); the loader requires the two sets to
+    match exactly, so a mocked URL with an unsubstituted ``{placeholder}`` is unrepresentable.
+    """
 
     name: str
     kind: Literal["client", "cli", "mcp", "mcp_guard"]
     http_method: Literal["GET", "POST", "PATCH", "DELETE"]
-    path: str
+    path_args: dict[str, str] = Field(default_factory=dict)
     status: int = 200
     response_json: Any = None
     has_json: bool = True

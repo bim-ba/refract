@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, assert_never
 from refract.emitters.ports import Import
 from refract.emitters.python.resolve._common import (
     _referenced_model_names,
+    path_template,
+    py_str,
     render_imports,
     require_model,
 )
@@ -119,8 +121,31 @@ def _tests_imports(
     return (*stdlib, *third_party, *first_party)
 
 
+def _mock_url(op: ir.Operation, case: ir.TestCase, base_url: str, naming: Naming) -> str:
+    """The URL this case stubs: ``base_url`` + the op path with its placeholders SUBSTITUTED.
+
+    Mirrors what the generated client sends. The client's request builder wraps
+    ``path_template`` in an f-string over the guarded path-param identifiers; here the same
+    template is ``.format``ed with the case's ``path_args`` keyed by those same identifiers - so
+    ``{id}`` (bound to ``id_`` in the client) and ``{widget_id}`` substitute alike, and an escaped
+    ``{{a}}`` collapses to the literal ``{a}`` exactly as the f-string would.
+
+    A path param with no authored value is rejected by the loader; IR reaching the emitter from
+    any other producer fails loud here rather than stubbing an unrequestable brace-bearing URL.
+    """
+    provided = {name for name, _value in case.path_args}
+    missing = [p.name for p in op.params if p.loc == "path" and p.name not in provided]
+    if missing:
+        raise ValueError(
+            f"{op.name}: test {case.name!r} provides no value for path param "
+            f"{', '.join(repr(name) for name in missing)}"
+        )
+    values = {naming.safe_param(name): value for name, value in case.path_args}
+    return f"{base_url}/{path_template(op.path, op.params, naming).format(**values)}"
+
+
 def _tests_constants(
-    res: ir.Resource, op: ir.Operation, ctx: EmitContext, kinds: set[TestKind]
+    res: ir.Resource, op: ir.Operation, ctx: EmitContext, kinds: set[TestKind], naming: Naming
 ) -> tuple[str, ...]:
     """Module constants: ``_URL_<op.name>`` (always), ``_PAYLOAD_<op.name>`` (client case),
     ``_runner`` (cli case, shared - not op-suffixed; harmlessly re-assigned to the same value if
@@ -130,10 +155,14 @@ def _tests_constants(
     even when a single op has tests - so two tests-bearing ops never collide on the same
     constant name. Built from ``ctx.config.server.base_url`` (``base_url`` left ``Resource`` for
     ``ClientConfig``). ``response_json`` is authored data; ``!r`` produces a single-quote repr,
-    which ruff normalizes to double-quote. No type lowering is needed."""
+    which ruff normalizes to double-quote. No type lowering is needed.
+
+    ONE ``_URL`` per op means one substituted path per op, so the URL is read off the first case;
+    the loader rejects an operation whose cases disagree on ``path_args``."""
     if ctx.config is None:
         raise ValueError("tests surface requires ClientConfig (base_url)")
-    lines = [f'_URL_{op.name} = "{ctx.config.server.base_url}/{op.path}"']
+    url = _mock_url(op, op.tests[0], ctx.config.server.base_url, naming)
+    lines = [f"_URL_{op.name} = {py_str(url)}"]
     # `_stub` references `_PAYLOAD_<op>` for EVERY non-guard case (client/cli/mcp) - only the
     # MCP_GUARD case inlines its own `{}`. So the payload constant must exist whenever any
     # non-guard case does, not merely when a CLIENT case does: a cli-only or mcp-only tested op
@@ -266,7 +295,7 @@ def resolve_tests(
     constants: list[str] = []
     tests: list[str] = []
     for op in tested:
-        constants.extend(_tests_constants(res, op, ctx, {case.kind for case in op.tests}))
+        constants.extend(_tests_constants(res, op, ctx, {case.kind for case in op.tests}, naming))
         tests.extend(_test_block(res, op, case) for case in op.tests)
     return TestsPageView(
         doc_block=doc_comments.render(_tests_module_doc(res, tested, kinds), ""),

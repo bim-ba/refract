@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from refract.emitters.ports import Import
 from refract.emitters.python.resolve._common import (
+    path_template,
     render_imports,
     signature_and_call,
     signature_params,
@@ -19,18 +20,13 @@ def path_expr(path: str, params: tuple[ir.Param, ...], naming: Naming) -> str:
     """Emit an f-string when the path has `{placeholders}`, else a plain string literal.
 
     A path placeholder names its path param verbatim (`widget/{id}`); a shadowed name is rewritten
-    to the guarded identifier (`{id}` -> `{id_}`) so the f-string references the safe local var. The
-    substituted URL value is unchanged (a placeholder rename, not a wire change). Query params are
-    never in the path, so they are not considered here.
+    to the guarded identifier (`{id}` -> `{id_}`) by `path_template`, so the f-string references
+    the safe local var. The tests emitter formats that same template with the test case's
+    `path_args`, which is what keeps a mocked URL and a requested URL in step.
     """
     if "{" not in path:
         return f'"{path}"'
-    for param in params:
-        if param.loc == "path":
-            safe = naming.safe_param(param.name)
-            if safe != param.name:
-                path = path.replace(f"{{{param.name}}}", f"{{{safe}}}")
-    return f'f"{path}"'
+    return f'f"{path_template(path, params, naming)}"'
 
 
 def _request_doc(op: ir.Operation, *, write: bool) -> str:

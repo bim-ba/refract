@@ -398,6 +398,67 @@ def test_load_accepts_a_placeholder_path_matching_its_declared_param(tmp_path: P
     assert operation.params[0].name == "widget_id"
 
 
+def _tested_op(path: str, param_names: tuple[str, ...], *path_args: dict[str, str]):
+    """The `_op_with_path` shape plus one client-kind test case per `path_args` mapping."""
+    spec = _op_with_path(path, *param_names)
+    return spec.model_copy(
+        update={
+            "tests": [
+                schema.TestSpec(
+                    name=f"widgets_get_{index}",
+                    kind="client",
+                    http_method="GET",
+                    path_args=args,
+                    call="WidgetClient().widgets.get()",
+                )
+                for index, args in enumerate(path_args)
+            ]
+        }
+    )
+
+
+def test_test_case_without_a_value_for_a_path_param_raises_spec_error():
+    """Issue #17: the mocked URL is BUILT by substituting `path_args` into the path, so a missing
+    value could only ever emit a URL with a literal `{placeholder}` - one the generated client can
+    never request. Reject it here rather than ship a test that cannot pass."""
+    expected = re.escape(
+        "operation 'get': test 'widgets_get_0' provides path_args [] but the operation declares "
+        "path params ['widget_id']"
+    )
+    with pytest.raises(SpecError, match=expected):
+        _operation(_tested_op("widgets/{widget_id}", ("widget_id",), {}))
+
+
+def test_test_case_with_a_surplus_path_arg_raises_spec_error():
+    """The mirror direction: a value for a param the operation does not declare substitutes
+    nothing and silently claims to."""
+    with pytest.raises(SpecError, match=r"provides path_args \['widget_id'\].*path params \[\]"):
+        _operation(_tested_op("widgets", (), {"widget_id": "W-1"}))
+
+
+def test_test_case_path_args_lower_to_a_sorted_tuple():
+    """Positive control: authored order does not matter - the IR pairs are canonically ordered so
+    two cases of one operation compare equal whenever they carry the same values."""
+    operation = _operation(
+        _tested_op(
+            "widgets/{widget_id}/parts/{part_id}",
+            ("widget_id", "part_id"),
+            {"widget_id": "W-1", "part_id": "7"},
+        )
+    )
+    assert operation.tests[0].path_args == (("part_id", "7"), ("widget_id", "W-1"))
+
+
+def test_test_cases_disagreeing_on_path_args_raise_spec_error():
+    """One `_URL_<operation>` constant serves every case of an operation, so two cases stubbing
+    different URLs would leave one of them mocking a URL its own call never requests."""
+    spec = _tested_op(
+        "widgets/{widget_id}", ("widget_id",), {"widget_id": "W-1"}, {"widget_id": "W-2"}
+    )
+    with pytest.raises(SpecError, match="test cases disagree on path_args"):
+        _operation(spec)
+
+
 def test_undiscriminated_oneof_lowers_to_union_of_mixed_type_exprs():
     """Variant 2: an undiscriminated `oneof` (no discriminator) mixes a scalar + a ref."""
     field = _field(

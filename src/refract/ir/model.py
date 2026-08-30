@@ -96,10 +96,17 @@ class CLICommand(_IR):
 
 
 class TestCase(_IR):
+    """One authored test fixture. ``path_args`` binds each of the operation's path params to the
+    literal URL segment this case exercises (ordered, hashable - the ``ClientConfig.auth`` idiom),
+    so the emitter can build the mocked URL the same way the generated client builds the real one.
+    The dead ``path`` field it replaces duplicated ``Operation.path`` verbatim and was read by
+    nothing.
+    """
+
     name: str
     kind: TestKind
     http_method: str
-    path: str
+    path_args: tuple[tuple[str, str], ...] = ()  # path-param name -> literal URL segment
     status: int
     response_json: (
         JsonValue | None

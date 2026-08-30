@@ -93,7 +93,7 @@ operations:
       # Client-kind fixture proving multi-op tests (D1 L1 snapshot) alongside `create` below -
       # priorities has only one read op, so exercising two ops necessarily pairs a read with a
       # write.
-      - {name: priorities_client_list, kind: client, http_method: GET, path: priorities, status: 200,
+      - {name: priorities_client_list, kind: client, http_method: GET, status: 200,
          response_json: [{key: normal, name: Normal}, {key: critical, name: Critical}],
          call: "TrackerClient(oauth_token=\"t\", organization_id=\"o\").priorities.list()",
          asserts: ["isinstance(priorities, PriorityList)", "priorities.root[0].key == \"normal\""]}
@@ -128,7 +128,7 @@ operations:
     tests:
       # Client-kind write case - the body model (PriorityCreate) AND its nested ref field
       # (LocalizedName) both appear literally in `call`, exercising the STEP-A import fix.
-      - {name: priorities_client_create, kind: client, http_method: POST, path: priorities/, status: 200,
+      - {name: priorities_client_create, kind: client, http_method: POST, status: 200,
          response_json: {key: one, name: Nizkiy},
          call: "TrackerClient(oauth_token=\"t\", organization_id=\"o\").priorities.create(PriorityCreate(key=\"one\", name=LocalizedName(ru=\"Nizkiy\")))",
          asserts: ["isinstance(priorities, Priority)", "priorities.key == \"one\"", "priorities.name == \"Nizkiy\""]}
