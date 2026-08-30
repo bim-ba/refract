@@ -1,5 +1,5 @@
-"""Whole-snapshot proof: every generated file under the committed L1 corpus
-(``examples/ycli-tracker/out/``) is compilable Python.
+"""Whole-snapshot proof: every generated file under EVERY committed L1 corpus
+(``examples/*/out/``) is compilable Python.
 
 ``compile(..., "exec")`` compiles to bytecode without executing it, so this holds even though the
 generated modules import ``ycli``/``uplink`` runtime packages that aren't installed here (imports
@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-_OUT = Path(__file__).resolve().parent.parent / "examples" / "ycli-tracker" / "out"
-_PY_FILES = sorted(_OUT.rglob("*.py"))
+_EXAMPLES = Path(__file__).resolve().parent.parent / "examples"
+_PY_FILES = sorted(_EXAMPLES.glob("*/out/**/*.py"))
 
 
 def test_out_tree_is_not_empty():
@@ -24,7 +24,7 @@ def test_out_tree_is_not_empty():
     assert _PY_FILES
 
 
-@pytest.mark.parametrize("path", _PY_FILES, ids=lambda p: str(p.relative_to(_OUT)))
+@pytest.mark.parametrize("path", _PY_FILES, ids=lambda p: str(p.relative_to(_EXAMPLES)))
 def test_generated_file_is_compilable_python(path: Path):
     source = path.read_text(encoding="utf-8")
     compile(source, str(path), "exec")

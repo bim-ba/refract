@@ -1,0 +1,178 @@
+domain: github
+resource: repos
+security: token
+module_docs:
+  models: "Pydantic models for the GitHub repos API (Repo + Issue + IssueList + IssueCreate)."
+  client: "Declarative GitHub repos client - transport ONLY (thin sugar over request builders)."
+  cli: "`github repos` commands."
+  mcp: "GitHub repos FastMCP tools (reads + one write, honest safety annotations)."
+  cli_group_help: "GitHub repositories and their issues."
+  mcp_server: "github-repos"
+  client_class: "Declarative HTTP for ``/repos/{owner}/{repo}`` (repository + issues)."
+documentation: "GitHub repos resource (one repository and its issues)."
+models:
+  # A partial view of GitHub's `full-repository`, so every field stays optional.
+  - name: Repo
+    documentation: |-
+      A GitHub repository (``GET /repos/{owner}/{repo}``).
+
+      Example:
+          >>> Repo.model_validate({"full_name": "octocat/Hello-World"}).full_name
+          'octocat/Hello-World'
+    fields:
+      - {name: id, type: integer, optional: true, description: "Numeric repository id."}
+      - {name: name, type: string, optional: true, description: "Repository name, without the owner."}
+      - {name: full_name, type: string, optional: true, description: "``owner/repo``."}
+      - {name: private, type: boolean, optional: true, description: "Whether the repository is private."}
+      - {name: html_url, type: string, optional: true, description: "The repository page on github.com."}
+      - {name: description, type: string, optional: true, description: "Repository description (null when unset)."}
+      - {name: language, type: string, optional: true, description: "Primary language (null when undetected)."}
+      - {name: stargazers_count, type: integer, optional: true, description: "Count of stars."}
+      - {name: open_issues_count, type: integer, optional: true, description: "Count of open issues and pull requests."}
+      - {name: default_branch, type: string, optional: true, description: "Name of the default branch."}
+  # A partial view of GitHub's `issue`, so every field stays optional.
+  - name: Issue
+    documentation: |-
+      One issue of a repository (``/repos/{owner}/{repo}/issues``).
+
+      Example:
+          >>> Issue.model_validate({"number": 11054, "state": "open"}).number
+          11054
+    fields:
+      - {name: id, type: integer, optional: true, description: "Numeric issue id."}
+      - {name: number, type: integer, optional: true, description: "Issue number within the repository."}
+      - {name: title, type: string, optional: true, description: "Issue title."}
+      - {name: state, type: string, optional: true, description: "``open`` or ``closed``."}
+      - {name: state_reason, type: string, optional: true, description: "Why the issue reached its state (null when none)."}
+      - {name: body, type: string, optional: true, description: "Issue contents (null when empty)."}
+      - {name: html_url, type: string, optional: true, description: "The issue page on github.com."}
+      - {name: comments, type: integer, optional: true, description: "Count of comments."}
+      - {name: created_at, type: string, optional: true, description: "Creation timestamp (ISO 8601)."}
+  - name: IssueList
+    kind: root_list
+    item: Issue
+    documentation: |-
+      A bare JSON array of issues.
+
+      Example:
+          >>> IssueList.model_validate([{"number": 1}]).root[0].number
+          1
+  # `assignees`/`labels` are real body params but are arrays, which the assembled CLI cannot yet
+  # flatten - this write keeps the scalar subset so the `create` command stays generatable.
+  - name: IssueCreate
+    documentation: |-
+      Typed request body for ``POST /repos/{owner}/{repo}/issues`` (open an issue).
+
+      Example:
+          >>> IssueCreate(title="Bug", body="Steps…").model_dump(by_alias=True, exclude_none=True)
+          {'title': 'Bug', 'body': 'Steps…'}
+    fields:
+      - {name: title, type: string, description: "Title of the new issue."}
+      - {name: body, type: string, optional: true, description: "Contents of the new issue."}
+      - {name: milestone, type: integer, optional: true, description: "Number of the milestone to associate."}
+operations:
+  - name: get
+    method: GET
+    path: repos/{owner}/{repo}
+    operationId: repos_get
+    documentation: |-
+      ``GET /repos/{owner}/{repo}`` → one repository.
+
+      Example:
+          >>> client = GithubClient(github_token="…")  # doctest: +SKIP
+          >>> client.repos.get("octocat", "Hello-World").full_name  # doctest: +SKIP
+          'octocat/Hello-World'
+    params:
+      - {name: owner, loc: path, type: string, help: "The account owner of the repository."}
+      - {name: repo, loc: path, type: string, help: "The name of the repository, without the .git extension."}
+    responses:
+      200: {model: Repo}
+    mcp:
+      name: repos_get
+      safety: RO
+      title: "Get a GitHub repository"
+      documentation: "One repository's metadata, by owner and name."
+    # No cli facet: the CLI emitter renders a READ command as a parameterless passthrough, which
+    # would drop `owner`/`repo` and emit a call the client rejects.
+    tests:
+      # The emitted `_URL_get` constant is built from the OPERATION path, so it keeps the literal
+      # `{owner}`/`{repo}` slots; the authored `path` below is not read by the tests emitter yet.
+      - {name: repos_client_get, kind: client, http_method: GET, path: repos/octocat/Hello-World,
+         status: 200,
+         response_json: {id: 1296269, name: Hello-World, full_name: octocat/Hello-World,
+                         private: false, stargazers_count: 3785, default_branch: master},
+         call: "GithubClient(github_token=\"t\").repos.get(\"octocat\", \"Hello-World\")",
+         asserts: ["isinstance(repos, Repo)", "repos.full_name == \"octocat/Hello-World\"",
+                   "repos.default_branch == \"master\""]}
+  - name: issues
+    method: GET
+    path: repos/{owner}/{repo}/issues
+    operationId: repos_issues_list
+    documentation: |-
+      ``GET /repos/{owner}/{repo}/issues`` → the repository's issues.
+
+      GitHub returns pull requests through this endpoint too; ``state`` defaults to ``open``.
+
+      Example:
+          >>> client = GithubClient(github_token="…")  # doctest: +SKIP
+          >>> client.repos.issues("octocat", "Hello-World", state="all").root[0].number  # doctest: +SKIP
+          11054
+    params:
+      - {name: owner, loc: path, type: string, help: "The account owner of the repository."}
+      - {name: repo, loc: path, type: string, help: "The name of the repository, without the .git extension."}
+      - {name: state, loc: query, type: string, optional: true, alias: state,
+         help: "open, closed or all (default: open)."}
+      - {name: per_page, loc: query, type: integer, optional: true, alias: per_page,
+         help: "Results per page, max 100 (default: 30)."}
+    responses:
+      200: {model: IssueList}
+    mcp:
+      name: repos_issues_list
+      safety: RO
+      title: "List GitHub repository issues"
+      documentation: "Issues of one repository; pull requests are included by the API."
+    # No cli facet: same parameterless-passthrough limitation as `get` above.
+    tests:
+      - {name: repos_client_issues, kind: client, http_method: GET,
+         path: repos/octocat/Hello-World/issues, status: 200,
+         response_json: [{number: 11054, title: "This should fail", state: open}],
+         call: "GithubClient(github_token=\"t\").repos.issues(\"octocat\", \"Hello-World\", state=\"all\")",
+         asserts: ["isinstance(repos, IssueList)", "repos.root[0].number == 11054"]}
+  - name: create_issue
+    method: POST
+    path: repos/{owner}/{repo}/issues
+    operationId: repos_issues_create
+    documentation: |-
+      Open an issue in ``owner/repo`` from a typed ``IssueCreate`` body. Returns the new ``Issue``.
+
+      Example:
+          >>> client = GithubClient(github_token="…")  # doctest: +SKIP
+          >>> client.repos.create_issue(
+          ...     "octocat", "Hello-World", IssueCreate(title="Bug")
+          ... ).number  # doctest: +SKIP
+          11054
+    params:
+      - {name: owner, loc: path, type: string, help: "The account owner of the repository."}
+      - {name: repo, loc: path, type: string, help: "The name of the repository, without the .git extension."}
+    body: {strategy: TypedModel, model: IssueCreate}
+    responses:
+      201: {model: Issue}
+    mcp:
+      name: repos_issues_create
+      safety: WRITE
+      title: "Open a GitHub issue"
+      documentation: |-
+        Open an issue in a repository.
+
+        CAUTION: an issue is public in a public repository and notifies every watcher; the API
+        offers no delete, so a created issue can only be closed. Confirm ``owner``/``repo`` before
+        calling.
+    cli:
+      name: create
+      documentation: "Open an issue from a title and an optional body/milestone."
+    tests:
+      - {name: repos_client_create_issue, kind: client, http_method: POST,
+         path: repos/octocat/Hello-World/issues, status: 201,
+         response_json: {id: 5292951135, number: 11054, title: Bug, state: open},
+         call: "GithubClient(github_token=\"t\").repos.create_issue(\"octocat\", \"Hello-World\", IssueCreate(title=\"Bug\"))",
+         asserts: ["isinstance(repos, Issue)", "repos.number == 11054", "repos.title == \"Bug\""]}
