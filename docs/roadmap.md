@@ -1,6 +1,6 @@
 # refract — roadmap & build state
 
-> Resume-here doc. For the design, see `design.md`; for the rationale/validation, see `research/`.
+> Resume-here doc. For the design, see `design.md`.
 > Last updated after PR #9 — public repo, milestones A · A.2 · P0 · P1 merged.
 
 ## Where we are
@@ -49,16 +49,15 @@ its byte-target golden). Nothing is a bug in current output — the two resource
 - **A2-1:** the mcp surface-gate's skip arm is vacuously covered (line-cov; both current resources have
   mcp facets). Same class as A.1's F1. Covered when a no-mcp resource arrives.
 
-### Feature debt (deferred forks — see `research/` + the A.2 plan)
+### Feature debt (deferred forks — see the A.2 plan)
 - **`cli.py` write commands** (create/edit): bespoke flat-option→nested-body assembly
   (`LocalizedName.ru/en` → `--name-ru/--name-en`, `x or None`). Not mechanically generatable from the
   model schema → future **`Assembled`-CLI strategy** or a `handler:`. (Deferred from A.2.)
-- **Tests emitter is single-op (F2).** Must loop over `res.operations` before a multi-op resource's tests
-  can be generated. Also: ycli's test files are **entangled** — `tests/yandex/tracker/priorities/test_client.py`
-  & `test_cli.py` cover THREE resources (priorities+issuetypes+linktypes) in one file. refract's natural
+- **ycli's test files are entangled.** `tests/yandex/tracker/priorities/test_client.py` &
+  `test_cli.py` cover THREE resources (priorities+issuetypes+linktypes) in one file. refract's natural
   output is per-resource → **Milestone B must reorganize ycli's grouped tests to per-resource** (a real
-  migration cost). F4 (guard-doc as spec data) + F5 (`loader._response_model` hardcodes `responses[200]`
-  → first-2xx + SpecError for 201/204) ride along.
+  migration cost). Riding along in the same deferred batch: F4 (guard-doc as spec data) + F5
+  (`loader._response_model` hardcodes `responses[200]` → first-2xx + SpecError for 201/204).
 
 ### `[roadmap]` registries not yet built (add as consumers arrive — see `design.md` §6-9)
 pagination `Offset/Cursor/RelativeCursor/NextUrl/LinkHeader/…` · async `Operation` (LRO) · errors
@@ -71,8 +70,8 @@ auth bootstrap.
 
 1. ~~**Push A + A.2** to the public repo (establish github.com/bim-ba/refract).~~ **Done** (PR #1).
 2. **A.3 — a fuller-CRUD resource** (e.g. `statuses`/`resolutions`: required fields + delete +
-   self-contained per-resource tests). Exercises A2-1..3 with real byte-targets and closes **F2** (the
-   multi-op tests emitter). Stays local, no push needed.
+   self-contained per-resource tests). Exercises A2-1..3 with real byte-targets. Stays local, no push
+   needed.
 3. **Milestone B — wire ycli as the consumer.** ycli grows a `specs/` tree; `refract generate --check`
    runs in ycli CI; hand-written resources are replaced by generated ones resource-by-resource (tracker
    → wiki → forms), 100% suite green throughout; the `entities` god-resource stays hand-written. Proves
