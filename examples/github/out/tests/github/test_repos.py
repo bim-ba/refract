@@ -6,7 +6,7 @@ import responses
 from ycli.yandex.github.client import GithubClient
 from ycli.yandex.github.repos.models import Issue, IssueCreate, IssueList, Repo
 
-_URL_get = "https://api.github.com/repos/{owner}/{repo}"
+_URL_get = "https://api.github.com/repos/octocat/Hello-World"
 _PAYLOAD_get = {
     "id": 1296269,
     "name": "Hello-World",
@@ -15,9 +15,9 @@ _PAYLOAD_get = {
     "stargazers_count": 3785,
     "default_branch": "master",
 }
-_URL_issues = "https://api.github.com/repos/{owner}/{repo}/issues"
+_URL_issues = "https://api.github.com/repos/octocat/Hello-World/issues"
 _PAYLOAD_issues = [{"number": 11054, "title": "This should fail", "state": "open"}]
-_URL_create_issue = "https://api.github.com/repos/{owner}/{repo}/issues"
+_URL_create_issue = "https://api.github.com/repos/octocat/Hello-World/issues"
 _PAYLOAD_create_issue = {"id": 5292951135, "number": 11054, "title": "Bug", "state": "open"}
 
 

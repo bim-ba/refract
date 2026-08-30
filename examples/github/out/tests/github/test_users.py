@@ -19,7 +19,7 @@ from ycli.yandex.github.users.models import User
 _URL_me = "https://api.github.com/user"
 _PAYLOAD_me = {"login": "octocat", "id": 583231, "name": "The Octocat"}
 _runner = CliRunner()
-_URL_get = "https://api.github.com/users/{username}"
+_URL_get = "https://api.github.com/users/octocat"
 _PAYLOAD_get = {"login": "octocat", "id": 583231, "html_url": "https://github.com/octocat"}
 
 
