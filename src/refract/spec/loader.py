@@ -214,7 +214,7 @@ def _synthesize_discriminators(
 
 
 def _body(spec: schema.BodySpec | None) -> ir.Body | None:
-    """by_alias/omit_none take True/True defaults; ``dump`` text is not lowered into the IR."""
+    """by_alias/omit_none take their True/True IR defaults; the spec has no key to override them."""
     return None if spec is None else ir.Body(model=spec.model)
 
 

@@ -40,7 +40,12 @@ class OneOfSpec(_Spec):
 
 
 class FieldSpec(_Spec):
-    """One neutral field of a model - mirrors a v2 ``fields:`` entry."""
+    """One neutral field of a model - mirrors a v2 ``fields:`` entry.
+
+    Every key here is lowered into ``ir.Field``. ``enum:`` and ``deprecated:`` are deliberately
+    absent: nothing read them, so authoring one now fails on ``extra="forbid"`` instead of being
+    silently ignored. They come back as real keys when a spec actually needs them.
+    """
 
     name: str
     type: str | None = None  # sentinel None: absent when `oneof:` is used instead
@@ -48,9 +53,7 @@ class FieldSpec(_Spec):
     default: str | None = None  # explicit spec default; None => let the TypeMapper decide
     alias: str | None = None
     description: str | None = None
-    enum: list[str] | None = None
     format: str | None = None
-    deprecated: bool = False
     oneof: OneOfSpec | None = None  # mutually exclusive with `type:`
 
 
@@ -99,14 +102,13 @@ class ParamSpec(_Spec):
 class BodySpec(_Spec):
     """The write-body registry entry - only the ``TypedModel`` mode today.
 
-    ``model`` names a hand-written body model declared in ``models:``. ``strategy``/``dump`` are
-    still accepted on input (authored YAML), but the IR now carries ``by_alias``/``omit_none``
-    booleans (default True/True) instead of a rendered dump string - the loader ignores ``dump``.
+    ``model`` names a hand-written body model declared in ``models:``. There is no ``dump:`` key:
+    the IR carries ``by_alias``/``omit_none`` booleans (default True/True) that the backend renders,
+    so an authored dump string had no effect at all and is now rejected by ``extra="forbid"``.
     """
 
     strategy: Literal["TypedModel"]
     model: str
-    dump: str
 
 
 class TestSpec(_Spec):

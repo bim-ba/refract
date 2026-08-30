@@ -56,7 +56,7 @@ def test_create_body_flags_default_true():
     create = next(op for op in res.operations if op.name == "create")
     assert create.body is not None
     assert create.body.model == "PriorityCreate"
-    assert create.body.by_alias is True and create.body.omit_none is True  # no `dump` text
+    assert create.body.by_alias is True and create.body.omit_none is True  # IR defaults, unauthored
 
 
 def test_query_param_is_neutral():
@@ -164,6 +164,63 @@ operations:
         encoding="utf-8",
     )
     with pytest.raises(SpecError, match="'get' has no 2xx response"):
+        SpecLoader.load(resource_yaml)
+
+
+def _resource_with_field(tmp_path: Path, field_entry: str) -> Path:
+    """Write a minimal resource.yaml whose single model carries `field_entry` verbatim."""
+    resource_yaml = tmp_path / "resource.yaml"
+    resource_yaml.write_text(
+        "domain: t\nresource: m\nsecurity: s\n"
+        f"models:\n  - name: Widget\n    fields: [{field_entry}]\n"
+        "operations: []\n",
+        encoding="utf-8",
+    )
+    return resource_yaml
+
+
+def test_field_enum_is_rejected(tmp_path: Path):
+    """`enum:` never reached the IR; the schema drops it so authoring it fails loud."""
+    resource_yaml = _resource_with_field(tmp_path, "{name: key, type: string, enum: [a, b]}")
+    with pytest.raises(SpecError, match=r"fields\.0\.enum"):
+        SpecLoader.load(resource_yaml)
+
+
+def test_field_deprecated_is_rejected(tmp_path: Path):
+    """Same as `enum:` - no reader anywhere, so the key is gone from the schema."""
+    resource_yaml = _resource_with_field(tmp_path, "{name: key, type: string, deprecated: true}")
+    with pytest.raises(SpecError, match=r"fields\.0\.deprecated"):
+        SpecLoader.load(resource_yaml)
+
+
+def test_body_dump_is_rejected(tmp_path: Path):
+    """`dump:` text lost to ir.Body's by_alias/omit_none flags; authoring it is now an error."""
+    resource_yaml = tmp_path / "resource.yaml"
+    resource_yaml.write_text(
+        """
+domain: t
+resource: m
+security: s
+models:
+  - name: WidgetCreate
+    fields: [{name: key, type: string}]
+operations:
+  - name: create
+    method: POST
+    path: widgets/
+    operationId: widgets_create
+    body: {strategy: TypedModel, model: WidgetCreate, dump: "by_alias=True"}
+    responses:
+      200: {model: WidgetCreate}
+    mcp:
+      name: widgets_create
+      safety: WRITE
+      title: t
+      documentation: d
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match=r"body\.dump"):
         SpecLoader.load(resource_yaml)
 
 
