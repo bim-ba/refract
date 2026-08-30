@@ -110,7 +110,7 @@ operations:
           ...     PriorityCreate(key="one", name=LocalizedName(ru="Низкий"), order=60)
           ... ).key  # doctest: +SKIP
           'one'
-    body: {strategy: TypedModel, model: PriorityCreate, dump: "by_alias=True, exclude_none=True"}
+    body: {strategy: TypedModel, model: PriorityCreate}
     responses:
       200: {model: Priority}
     mcp:
@@ -151,7 +151,7 @@ operations:
     params:
       - {name: priority_id, loc: path, type: string}
       - {name: version, loc: query, type: integer, optional: true, alias: version}
-    body: {strategy: TypedModel, model: PriorityUpdate, dump: "by_alias=True, exclude_none=True"}
+    body: {strategy: TypedModel, model: PriorityUpdate}
     responses:
       200: {model: Priority}
     mcp:

@@ -192,8 +192,7 @@ def test_plan_threads_shared_models_end_to_end(tmp_path):
         "    method: POST\n"
         "    path: widgets/\n"
         "    operationId: widgets_create\n"
-        "    body: {strategy: TypedModel, model: WidgetCreate, "
-        'dump: "by_alias=True, exclude_none=True"}\n'
+        "    body: {strategy: TypedModel, model: WidgetCreate}\n"
         "    responses:\n"
         "      200: {model: Widget}\n"
         "    mcp:\n"

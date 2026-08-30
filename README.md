@@ -9,7 +9,7 @@ A spec-driven code generator. Describe one API operation as YAML, and refract em
   method: POST
   path: priorities/
   operationId: priorities_create
-  body: {strategy: TypedModel, model: PriorityCreate, dump: "by_alias=True, exclude_none=True"}
+  body: {strategy: TypedModel, model: PriorityCreate}
   responses:
     200: {model: Priority}
   mcp:
