@@ -159,7 +159,8 @@ def _synthesize_discriminators(
     documentation only. Standalone (built models + their specs in, models out) so Task 9's
     `load_shared_models` can reuse it verbatim.
 
-    Several holders may discriminate over the SAME variant set, so injection is keyed by
+    One variant may be named by several `oneof` declarations - by two holders over the same
+    variant set, or twice inside one holder's own map - so injection is keyed by
     `(variant, discriminator)`: an identical label repeats no field, while a DIFFERENT label for
     that key is a spec contradiction (one variant cannot carry two tags) and fails loud.
     """
@@ -180,11 +181,13 @@ def _synthesize_discriminators(
                     )
                 previous = labelled.get((target, oneof.discriminator))
                 if previous == label:
-                    continue  # same holder-agnostic tag, already injected
+                    continue  # this exact tag is already injected - one field, not one per holder
                 if previous is not None:
+                    # the first label may come from another holder, so name the CURRENT field only
                     raise SpecError(
-                        f"variant {target!r}: discriminator {oneof.discriminator!r} gets "
-                        f"conflicting labels {previous!r} and {label!r} from different unions"
+                        f"field {field_spec.name!r}: discriminated-union variant {target!r} gets "
+                        f"conflicting labels {previous!r} and {label!r} for discriminator "
+                        f"{oneof.discriminator!r}"
                     )
                 labelled[target, oneof.discriminator] = label
                 injected.setdefault(target, []).append(

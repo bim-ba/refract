@@ -467,15 +467,28 @@ def test_discriminated_variant_naming_non_object_model_raises():
         _resource(spec)
 
 
-def _pet_holder(name: str, field_name: str) -> schema.ModelSpec:
-    """A union holder over the SAME Cat/Dog variant set - two of these share one variant set."""
+def _cat() -> schema.ModelSpec:
+    return schema.ModelSpec(
+        name="Cat", fields=[schema.FieldSpec(name="lives", type="integer", optional=True)]
+    )
+
+
+def _dog() -> schema.ModelSpec:
+    return schema.ModelSpec(
+        name="Dog", fields=[schema.FieldSpec(name="breed", type="string", optional=True)]
+    )
+
+
+def _pet_holder(name: str, field_name: str, variants: dict[str, str] | None = None):
+    """A union holder over the Cat/Dog variant set - two of these share one variant set."""
     return schema.ModelSpec(
         name=name,
         fields=[
             schema.FieldSpec(
                 name=field_name,
                 oneof=schema.OneOfSpec(
-                    discriminator="kind", variants={"cat": "ref<Cat>", "dog": "ref<Dog>"}
+                    discriminator="kind",
+                    variants=variants or {"cat": "ref<Cat>", "dog": "ref<Dog>"},
                 ),
             )
         ],
@@ -485,17 +498,11 @@ def _pet_holder(name: str, field_name: str) -> schema.ModelSpec:
 def test_two_holders_over_one_variant_set_synthesize_one_tag_each():
     """Two holders discriminating over the SAME variants must inject each variant's tag ONCE -
     the undeduped append gave every variant N copies of `kind` (one per holder)."""
-    cat = schema.ModelSpec(
-        name="Cat", fields=[schema.FieldSpec(name="lives", type="integer", optional=True)]
-    )
-    dog = schema.ModelSpec(
-        name="Dog", fields=[schema.FieldSpec(name="breed", type="string", optional=True)]
-    )
     spec = schema.ResourceSpec(
         domain="notion",
         resource="blocks",
         security="tok",
-        models=[cat, dog, _pet_holder("Owner", "pet"), _pet_holder("Shelter", "resident")],
+        models=[_cat(), _dog(), _pet_holder("Owner", "pet"), _pet_holder("Shelter", "resident")],
         operations=[_minimal_op()],
     )
     res = _resource(spec)
@@ -509,31 +516,40 @@ def test_two_holders_over_one_variant_set_synthesize_one_tag_each():
 
 def test_holders_labelling_one_variant_differently_raise():
     """Two holders tagging the SAME variant with DIFFERENT labels is a spec contradiction, not a
-    duplicate - fail loud naming both labels instead of silently keeping either."""
-    cat = schema.ModelSpec(
-        name="Cat", fields=[schema.FieldSpec(name="lives", type="integer", optional=True)]
-    )
-    dog = schema.ModelSpec(
-        name="Dog", fields=[schema.FieldSpec(name="breed", type="string", optional=True)]
-    )
+    duplicate - fail loud naming both labels instead of silently keeping either. The reported
+    field is the CURRENT holder (`resident`); the first label came from `Owner.pet`."""
     # same variant set as `_pet_holder`, but Cat is labelled `feline` here and `cat` there
-    contradicting = schema.ModelSpec(
-        name="Shelter",
-        fields=[
-            schema.FieldSpec(
-                name="resident",
-                oneof=schema.OneOfSpec(
-                    discriminator="kind", variants={"feline": "ref<Cat>", "dog": "ref<Dog>"}
-                ),
-            )
-        ],
-    )
+    contradicting = _pet_holder("Shelter", "resident", {"feline": "ref<Cat>", "dog": "ref<Dog>"})
     spec = schema.ResourceSpec(
         domain="notion",
         resource="blocks",
         security="tok",
-        models=[cat, dog, _pet_holder("Owner", "pet"), contradicting],
+        models=[_cat(), _dog(), _pet_holder("Owner", "pet"), contradicting],
         operations=[_minimal_op()],
     )
-    with pytest.raises(SpecError, match="conflicting labels 'cat' and 'feline'"):
+    with pytest.raises(
+        SpecError, match=r"field 'resident': .* 'Cat' gets conflicting labels 'cat' and 'feline'"
+    ):
+        _resource(spec)
+
+
+def test_one_holder_labelling_one_variant_twice_raises():
+    """The conflict is not only cross-holder: ONE `oneof` map listing `ref<Cat>` under two labels
+    contradicts itself the same way, and the message must name the field that holds both."""
+    spec = schema.ResourceSpec(
+        domain="notion",
+        resource="blocks",
+        security="tok",
+        models=[
+            _cat(),
+            _dog(),
+            _pet_holder(
+                "Owner", "pet", {"cat": "ref<Cat>", "feline": "ref<Cat>", "dog": "ref<Dog>"}
+            ),
+        ],
+        operations=[_minimal_op()],
+    )
+    with pytest.raises(
+        SpecError, match=r"field 'pet': .* 'Cat' gets conflicting labels 'cat' and 'feline'"
+    ):
         _resource(spec)

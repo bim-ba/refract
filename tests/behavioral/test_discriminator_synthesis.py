@@ -175,3 +175,80 @@ def test_generated_optional_discriminated_union_is_omittable_and_discriminates(
     finally:
         for name in ("pagepkg.notion.models", "pagepkg.notion", "pagepkg.models", "pagepkg"):
             sys.modules.pop(name, None)
+
+
+_SHARED_VARIANT_SET_YAML = """
+domain: notion
+resource: pets
+security: tok
+models:
+  - name: Cat
+    fields:
+      - {name: lives, type: integer, optional: true}
+  - name: Dog
+    fields:
+      - {name: breed, type: string, optional: true}
+  - name: Owner
+    fields:
+      - name: pet
+        oneof:
+          discriminator: kind
+          variants:
+            cat: "ref<Cat>"
+            dog: "ref<Dog>"
+  - name: Shelter
+    fields:
+      - name: resident
+        oneof:
+          discriminator: kind
+          variants:
+            cat: "ref<Cat>"
+            dog: "ref<Dog>"
+operations:
+  - name: get
+    method: GET
+    path: pets
+    operationId: pets_get
+    responses:
+      200: {model: Owner}
+    mcp:
+      name: pets_get
+      safety: RO
+      title: Get
+      documentation: Get an owner.
+"""
+
+
+def test_shared_variant_set_emits_one_tag_per_variant(tmp_path, monkeypatch):
+    """Issue #5 at the EMIT level: two holders (`Owner`, `Shelter`) discriminate over one Cat/Dog
+    set, so the undeduped synthesis rendered `kind: Literal[...]` TWICE per variant. Python shadows
+    the repeat, so only the source itself shows the defect - count the lines, then still import."""
+    resource_yaml = tmp_path / "resource.yaml"
+    resource_yaml.write_text(_SHARED_VARIANT_SET_YAML, encoding="utf-8")
+    res = SpecLoader.load(resource_yaml)
+    parts = (PythonNaming(), PythonTypeMapper(), PythonDocComments(), make_template_environment())
+    ctx = EmitContext(package_root="petpkg.notion")
+    source = RuffFormatter().format(ModelsSurface(*parts).emit(res, ctx))
+    assert source.count('kind: Literal["cat"]') == 1  # was 2 - one per holder
+    assert source.count('kind: Literal["dog"]') == 1
+
+    pkg = tmp_path / "petpkg"
+    (pkg / "notion").mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "models.py").write_text(
+        "from pydantic import BaseModel\n\n\nclass APIModel(BaseModel):\n    pass\n",
+        encoding="utf-8",
+    )
+    (pkg / "notion" / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "notion" / "models.py").write_text(source, encoding="utf-8")
+
+    monkeypatch.syspath_prepend(str(tmp_path))
+    try:
+        models = importlib.import_module("petpkg.notion.models")
+        owner = models.Owner.model_validate({"pet": {"kind": "cat", "lives": 9}})
+        shelter = models.Shelter.model_validate({"resident": {"kind": "dog", "breed": "corgi"}})
+        assert isinstance(owner.pet, models.Cat)  # both holders discriminate on the single tag
+        assert isinstance(shelter.resident, models.Dog)
+    finally:
+        for name in ("petpkg.notion.models", "petpkg.notion", "petpkg.models", "petpkg"):
+            sys.modules.pop(name, None)
