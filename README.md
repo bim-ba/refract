@@ -1,6 +1,35 @@
+<div align="center">
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+  <img src="docs/assets/logo-light.svg" alt="refract logo" width="104">
+</picture>
+
 # refract
 
-A spec-driven code generator. Describe one API operation as YAML, and refract emits the code a hand-written client would need for it: a typed Pydantic model, an `httpx` request builder, a Typer CLI command, and a FastMCP tool — plus a test for each. [`ycli`](https://github.com/bim-ba/ycli), a Yandex 360 client, is the first consumer and the accuracy bar: refract's output is checked byte-for-byte against ycli's real, hand-written files.
+**One spec — every surface.**
+Author one neutral YAML API spec; refract compiles it into a typed Python SDK,
+CLI, MCP server, and tests — byte-identical to hand-written code.
+
+[![CI](https://img.shields.io/github/actions/workflow/status/bim-ba/refract/ci.yml?branch=main&logo=githubactions&logoColor=white&label=ci)](https://github.com/bim-ba/refract/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen?logo=pytest&logoColor=white)](https://github.com/bim-ba/refract)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
+[![License](https://img.shields.io/badge/license-MIT-lightgrey?logo=opensourceinitiative&logoColor=white)](LICENSE)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/bim-ba/refract)
+
+<img src="https://raw.githubusercontent.com/bim-ba/refract/main/docs/assets/demo.gif" alt="refract in action" width="760">
+
+</div>
+
+- 🧩 **One spec, five surfaces** — pydantic models, sans-I/O request builders plus a typed
+  client, a typer CLI, a FastMCP server, and tests, all from one YAML file.
+- ✍️ **Indistinguishable from hand-written** — the golden oracle is a real production wrapper
+  ([`ycli`](https://github.com/bim-ba/ycli), a Yandex 360 client): the generator must reproduce
+  its code byte for byte.
+- 🤖 **Agent-native MCP** — curation lives in the spec: safety annotations, curated tool names,
+  an empty-success guard; operations without an `mcp:` facet are never exposed.
+- 🚧 **Alpha — walking skeleton** — one language (Python), one corpus, and the spec shape is
+  still moving.
 
 **Input** — one operation in a `resource.yaml` ([`examples/ycli-tracker/tracker/priorities/resource.yaml`](examples/ycli-tracker/tracker/priorities/resource.yaml)):
 
@@ -41,7 +70,7 @@ The same `create` block also produced this operation's request builder, MCP tool
 
 ## Status
 
-**Alpha — walking skeleton.** One target language (Python), one proving ground (the `examples/ycli-tracker` corpus: two Tracker resources, `priorities` and `me`). Not published, not used by ycli yet.
+One target language (Python), one proving ground — the `examples/ycli-tracker` corpus: two Tracker resources, `priorities` and `me`. Not published, not used by ycli yet.
 
 What exists:
 
