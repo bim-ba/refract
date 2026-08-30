@@ -1,5 +1,6 @@
 import re
 from pathlib import Path
+from string import Formatter
 
 import pytest
 
@@ -268,12 +269,33 @@ def test_unbalanced_brace_in_path_raises_spec_error(path: str):
         _operation(_op_with_path(path))
 
 
-@pytest.mark.parametrize("path", ["widgets/{}", "widgets/{widget.id}", "widgets/{widget_id:>5}"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "widgets/{}",
+        "widgets/{widget.id}",
+        "widgets/{widget_id:>5}",
+        "widgets/{widget_id!r}",
+        "widgets/{widget_id:}",  # `Formatter` reports it exactly like `{widget_id}` - see below
+    ],
+)
 def test_non_plain_path_placeholder_raises_spec_error(path: str):
-    """Only a bare `{name}` names a param: an empty slot, an attribute access and a format spec all
-    render something other than the declared value into the URL."""
-    with pytest.raises(SpecError, match="is not a plain parameter name"):
+    """Only a bare `{name}` names a param: an empty slot, an attribute access, a format spec and a
+    conversion each render something other than the declared value into the URL."""
+    with pytest.raises(SpecError, match="is not a plain"):
         _operation(_op_with_path(path, "widget_id"))
+
+
+def test_empty_format_spec_is_not_a_plain_placeholder():
+    """The trailing-colon slot is invisible to `Formatter`: `{widget_id}` and `{widget_id:}` parse
+    to the SAME tuple (format_spec `''` in both), so only the round trip against the authored path
+    separates them. It matters because the emitter's shadow guard rewrites `{id}` -> `{id_}` by a
+    literal replace, misses the colon form, and `f"w/{id:}"` then resolves the BUILTIN `id`: a
+    silently wrong URL with no NameError to catch it."""
+    assert list(Formatter().parse("w/{id}")) == list(Formatter().parse("w/{id:}"))
+    assert f"w/{id:}" == "w/<built-in function id>"  # exactly what the emitter would render
+    with pytest.raises(SpecError, match="is not a plain"):
+        _operation(_op_with_path("w/{id:}", "id"))
 
 
 def _widget_resource_yaml(param_name: str) -> str:

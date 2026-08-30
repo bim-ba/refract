@@ -241,34 +241,40 @@ def _response_model(name: str, responses: dict[int, schema.ResponseSpec]) -> str
     return responses[min(success)].model
 
 
-def _path_placeholders(name: str, path: str) -> frozenset[str]:
+def _path_placeholders(operation_name: str, path: str) -> frozenset[str]:
     """The `{slot}` names of `path`, read with the SAME grammar the emitter's f-string will use.
 
     `string.Formatter` is that grammar (`{{` is an escape, not a slot), so a naive regex disagrees
     with the emitted code exactly where it hurts: `w/{{a}}` renders the literal URL `w/{a}` and
-    substitutes nothing. Escapes and non-plain slots (`{}`, `{a.b}`, `{a:>5}`, `{a!r}`) are
-    authoring errors in a URL path, not features - reject them rather than emit a wrong client.
+    substitutes nothing. Only a bare `{name}` is a parameter slot, so the accepted path must ROUND
+    TRIP through the parse: `Formatter` reports `{a}`, `{a:}`, `{a:>5}` and `{a!r}` alike (a plain
+    field's format_spec is `''`, never None), and each dropped suffix would reach the URL - `{a:}`
+    even resolves to the builtin when the emitter's shadow guard renames the local var.
     """
     if "{{" in path or "}}" in path:
         raise SpecError(
-            f"operation {name!r}: path {path!r} contains an escaped brace - a doubled brace "
-            "renders one literal brace in the URL and substitutes no param"
+            f"operation {operation_name!r}: path {path!r} contains an escaped brace - a doubled "
+            "brace renders one literal brace in the URL and substitutes no param"
         )
     try:
         slots = list(Formatter().parse(path))
     except ValueError as error:  # unbalanced brace - the emitted f-string would not even compile
-        raise SpecError(f"operation {name!r}: path {path!r} is malformed - {error}") from error
-    names: set[str] = set()
-    for _, field, format_spec, conversion in slots:
-        if field is None:  # a trailing literal segment carries no slot
-            continue
-        if not field.isidentifier() or format_spec or conversion is not None:
-            raise SpecError(
-                f"operation {name!r}: path {path!r} has placeholder '{{{field}}}', which is not a "
-                "plain parameter name"
-            )
-        names.add(field)
-    return frozenset(names)
+        raise SpecError(
+            f"operation {operation_name!r}: path {path!r} is malformed - {error}"
+        ) from error
+    fields: set[str] = set()
+    round_trip: list[str] = []
+    for literal, field, _format_spec, _conversion in slots:
+        round_trip.append(literal if field is None else f"{literal}{{{field}}}")
+        if field is not None:
+            fields.add(field)
+    if "".join(round_trip) != path or not all(field.isidentifier() for field in fields):
+        raise SpecError(
+            f"operation {operation_name!r}: path {path!r} has a slot that is not a plain "
+            "'{parameter_name}' - a conversion, a format spec (even an empty one) or a non-name "
+            "field silently changes the URL"
+        )
+    return frozenset(fields)
 
 
 def _check_path_placeholders(spec: schema.OperationSpec) -> None:
