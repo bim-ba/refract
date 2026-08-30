@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from string import Formatter
 from typing import TYPE_CHECKING, cast
 
 import yaml
@@ -257,7 +258,61 @@ def _response_model(name: str, responses: dict[int, schema.ResponseSpec]) -> str
     return responses[min(success)].model
 
 
+def _path_placeholders(operation_name: str, path: str) -> frozenset[str]:
+    """The `{slot}` names of `path`, read with the SAME grammar the emitter's f-string will use.
+
+    `string.Formatter` is that grammar (`{{` is an escape, not a slot), so a naive regex disagrees
+    with the emitted code exactly where it hurts: `w/{{a}}` renders the literal URL `w/{a}` and
+    substitutes nothing. Only a bare `{name}` is a parameter slot, so the accepted path must ROUND
+    TRIP through the parse: `Formatter` reports `{a}`, `{a:}`, `{a:>5}` and `{a!r}` alike (a plain
+    field's format_spec is `''`, never None), and each dropped suffix would reach the URL - `{a:}`
+    even resolves to the builtin when the emitter's shadow guard renames the local var.
+    """
+    if "{{" in path or "}}" in path:
+        raise SpecError(
+            f"operation {operation_name!r}: path {path!r} contains an escaped brace - a doubled "
+            "brace renders one literal brace in the URL and substitutes no param"
+        )
+    try:
+        slots = list(Formatter().parse(path))
+    except ValueError as error:  # unbalanced brace - the emitted f-string would not even compile
+        raise SpecError(
+            f"operation {operation_name!r}: path {path!r} is malformed - {error}"
+        ) from error
+    fields: set[str] = set()
+    round_trip: list[str] = []
+    for literal, field, _format_spec, _conversion in slots:
+        round_trip.append(literal if field is None else f"{literal}{{{field}}}")
+        if field is not None:
+            fields.add(field)
+    if "".join(round_trip) != path or not all(field.isidentifier() for field in fields):
+        raise SpecError(
+            f"operation {operation_name!r}: path {path!r} has a slot that is not a plain "
+            "'{parameter_name}' - a conversion, a format spec (even an empty one) or a non-name "
+            "field silently changes the URL"
+        )
+    return frozenset(fields)
+
+
+def _check_path_placeholders(spec: schema.OperationSpec) -> None:
+    """The `{slots}` of `path` must be EXACTLY the declared `loc: path` param names.
+
+    Every surface renders the path as an f-string over the path params, so a mismatch in either
+    direction still imports (an f-string body is evaluated on call) and raises `NameError` on the
+    first call: an unbacked placeholder names a variable nobody binds, a slotless param is dead.
+    Reject both at the boundary so the illegal state never reaches the IR.
+    """
+    placeholders = _path_placeholders(spec.name, spec.path)
+    declared = frozenset(param.name for param in spec.params if param.loc == "path")
+    if placeholders != declared:
+        raise SpecError(
+            f"operation {spec.name!r}: path {spec.path!r} has placeholders {sorted(placeholders)} "
+            f"but declares path params {sorted(declared)} - the two sets must match exactly"
+        )
+
+
 def _operation(spec: schema.OperationSpec) -> ir.Operation:
+    _check_path_placeholders(spec)
     return ir.Operation(
         name=spec.name,
         method=spec.method,
@@ -343,7 +398,10 @@ class SpecLoader:
             spec = schema.ResourceSpec.model_validate(raw)
         except ValidationError as error:
             raise SpecError(f"{path}: spec failed validation -\n{error}") from error
-        return _resource(spec)
+        try:
+            return _resource(spec)
+        except SpecError as error:  # lowering errors name the operation/model, not the file
+            raise SpecError(f"{path}: {error}") from error
 
     @staticmethod
     def load_client_config(path: Path) -> ir.ClientConfig:

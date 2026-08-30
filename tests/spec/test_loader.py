@@ -1,4 +1,6 @@
+import re
 from pathlib import Path
+from string import Formatter
 
 import pytest
 
@@ -6,7 +8,15 @@ from refract import ir
 from refract.ir.model import ObjectModel, RootListModel
 from refract.ir.types import LiteralType, RefType, ScalarType, UnionType
 from refract.spec import schema
-from refract.spec.loader import SpecError, SpecLoader, _field, _param, _resource, _response_model
+from refract.spec.loader import (
+    SpecError,
+    SpecLoader,
+    _field,
+    _operation,
+    _param,
+    _resource,
+    _response_model,
+)
 
 _EX = Path(__file__).resolve().parent.parent.parent / "examples" / "ycli-tracker"
 
@@ -195,6 +205,140 @@ def test_required_path_and_optional_query_param_load():
     query = _param(schema.ParamSpec(name="notify", loc="query", optional=True))
     assert path.loc == "path" and path.optional is False
     assert query.loc == "query" and query.optional is True
+
+
+def _op_with_path(path: str, *param_names: str) -> schema.OperationSpec:
+    """An operation whose `path` and declared `loc: path` params are chosen independently."""
+    return schema.OperationSpec(
+        name="get",
+        method="GET",
+        path=path,
+        operationId="widgets_get",
+        params=[schema.ParamSpec(name=name, loc="path") for name in param_names],
+        responses={200: schema.ResponseSpec(model="Widget")},
+        mcp=schema.MCPToolSpec(
+            name="widgets_get", safety="RO", title="Get", documentation="Get a widget."
+        ),
+    )
+
+
+def test_path_placeholder_without_declared_param_raises_spec_error():
+    """I6: the emitter renders `path` as an f-string over the path params, so an unbacked
+    placeholder compiles and raises `NameError` on the first call - reject it at the boundary."""
+    spec = _op_with_path("widgets/{widget_id}/parts/{part_id}", "gadget_id")
+    expected = re.escape(
+        "operation 'get': path 'widgets/{widget_id}/parts/{part_id}' has placeholders "
+        "['part_id', 'widget_id'] but declares path params ['gadget_id']"
+    )
+    with pytest.raises(SpecError, match=expected):
+        _operation(spec)
+
+
+def test_declared_path_param_without_placeholder_raises_spec_error():
+    """The mirror direction: a declared path param no `{...}` slot consumes is dead and silent."""
+    spec = _op_with_path("widgets/{widget_id}", "widget_id", "part_id")
+    expected = re.escape(
+        "has placeholders ['widget_id'] but declares path params ['part_id', 'widget_id']"
+    )
+    with pytest.raises(SpecError, match=expected):
+        _operation(spec)
+
+
+def test_matching_path_placeholders_and_params_load():
+    """Positive control: two placeholders, two declared params, declaration order irrelevant."""
+    operation = _operation(
+        _op_with_path("widgets/{widget_id}/parts/{part_id}", "part_id", "widget_id")
+    )
+    assert operation.path == "widgets/{widget_id}/parts/{part_id}"
+    assert {param.name for param in operation.params} == {"widget_id", "part_id"}
+
+
+def test_escaped_braces_in_path_raise_spec_error():
+    """`{{a}}` is an f-string ESCAPE: the emitter renders the literal URL `w/{a}` and substitutes
+    nothing, so a regex-level reading would certify a client that never sends the param. Read the
+    path with the emitter's own grammar (`string.Formatter`) and reject the escape outright."""
+    with pytest.raises(SpecError, match="contains an escaped brace"):
+        _operation(_op_with_path("widgets/{{widget_id}}", "widget_id"))
+
+
+@pytest.mark.parametrize("path", ["widgets/{widget_id", "widgets/}"])
+def test_unbalanced_brace_in_path_raises_spec_error(path: str):
+    """An unbalanced brace does not even compile as an f-string; `Formatter` reports it as
+    ValueError, which is re-raised as a SpecError located on the operation."""
+    with pytest.raises(SpecError, match="is malformed"):
+        _operation(_op_with_path(path))
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "widgets/{}",
+        "widgets/{widget.id}",
+        "widgets/{widget_id:>5}",
+        "widgets/{widget_id!r}",
+        "widgets/{widget_id:}",  # `Formatter` reports it exactly like `{widget_id}` - see below
+    ],
+)
+def test_non_plain_path_placeholder_raises_spec_error(path: str):
+    """Only a bare `{name}` names a param: an empty slot, an attribute access, a format spec and a
+    conversion each render something other than the declared value into the URL."""
+    with pytest.raises(SpecError, match="is not a plain"):
+        _operation(_op_with_path(path, "widget_id"))
+
+
+def test_empty_format_spec_is_not_a_plain_placeholder():
+    """The trailing-colon slot is invisible to `Formatter`: `{widget_id}` and `{widget_id:}` parse
+    to the SAME tuple (format_spec `''` in both), so only the round trip against the authored path
+    separates them. It matters because the emitter's shadow guard rewrites `{id}` -> `{id_}` by a
+    literal replace, misses the colon form, and `f"w/{id:}"` then resolves the BUILTIN `id`: a
+    silently wrong URL with no NameError to catch it."""
+    assert list(Formatter().parse("w/{id}")) == list(Formatter().parse("w/{id:}"))
+    assert f"w/{id:}" == "w/<built-in function id>"  # exactly what the emitter would render
+    with pytest.raises(SpecError, match="is not a plain"):
+        _operation(_op_with_path("w/{id:}", "id"))
+
+
+def _widget_resource_yaml(param_name: str) -> str:
+    """One GET operation on `widgets/{widget_id}`; only the DECLARED path param name varies."""
+    return f"""
+domain: t
+resource: widgets
+security: s
+operations:
+  - name: get
+    method: GET
+    path: widgets/{{widget_id}}
+    operationId: widgets_get
+    params:
+      - name: {param_name}
+        loc: path
+    responses:
+      200:
+        model: Widget
+    mcp:
+      name: widgets_get
+      safety: RO
+      title: Get
+      documentation: Get a widget.
+"""
+
+
+def test_load_reports_the_spec_file_on_a_placeholder_mismatch(tmp_path: Path):
+    """End to end through the public boundary: the message locates the FILE too - an operation
+    name like `get` repeats across resources, so `operation 'get'` alone does not locate it."""
+    resource_yaml = tmp_path / "resource.yaml"
+    resource_yaml.write_text(_widget_resource_yaml("gadget_id"), encoding="utf-8")
+    with pytest.raises(SpecError, match=re.escape(f"{resource_yaml}: operation 'get'")):
+        SpecLoader.load(resource_yaml)
+
+
+def test_load_accepts_a_placeholder_path_matching_its_declared_param(tmp_path: Path):
+    """The public happy path: no example spec carries a `{placeholder}`, so prove the boundary."""
+    resource_yaml = tmp_path / "resource.yaml"
+    resource_yaml.write_text(_widget_resource_yaml("widget_id"), encoding="utf-8")
+    operation = SpecLoader.load(resource_yaml).operations[0]
+    assert operation.path == "widgets/{widget_id}"
+    assert operation.params[0].name == "widget_id"
 
 
 def test_undiscriminated_oneof_lowers_to_union_of_mixed_type_exprs():
