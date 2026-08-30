@@ -1,0 +1,95 @@
+domain: github
+resource: users
+security: token
+module_docs:
+  models: "Pydantic model for the GitHub users API (User)."
+  client: "Declarative GitHub users client - transport ONLY (thin sugar over request builders)."
+  cli: "`github users` commands."
+  mcp: "GitHub users FastMCP tools (reads-only) — Depends DI."
+  cli_group_help: "GitHub user accounts."
+  mcp_server: "github-users"
+  client_class: "Declarative HTTP for ``/user`` and ``/users/{username}``."
+documentation: "GitHub users resource (the authenticated user + any public user)."
+models:
+  # A partial view of GitHub's `public-user`, so every field stays optional (and `me`'s guard
+  # needs `login` None-able to detect an empty 200 body).
+  - name: User
+    documentation: |-
+      A GitHub user account (``GET /user``, ``GET /users/{username}``).
+
+      Example:
+          >>> User.model_validate({"login": "octocat", "id": 583231}).login
+          'octocat'
+    fields:
+      - {name: login, type: string, optional: true, description: "The user's handle."}
+      - {name: id, type: integer, optional: true, description: "Numeric account id."}
+      - {name: name, type: string, optional: true, description: "Display name (null when unset)."}
+      - {name: company, type: string, optional: true, description: "Company (null when unset)."}
+      - {name: location, type: string, optional: true, description: "Location (null when unset)."}
+      - {name: html_url, type: string, optional: true, description: "The profile page on github.com."}
+      - {name: public_repos, type: integer, optional: true, description: "Count of public repositories."}
+      - {name: followers, type: integer, optional: true, description: "Count of followers."}
+      - {name: created_at, type: string, optional: true, description: "Account creation timestamp (ISO 8601)."}
+operations:
+  - name: me
+    method: GET
+    path: user
+    operationId: users_me
+    documentation: "``GET /user`` → the authenticated ``User`` (a safe auth probe)."
+    responses:
+      200: {model: User}
+    mcp:
+      name: users_me
+      safety: RO
+      title: "Get the authenticated GitHub user"
+      documentation: "The user the GITHUB_TOKEN belongs to (a safe auth probe)."
+      require_found:
+        sentinel: "r.login is None"
+        message: "auth probe failed — empty user (check GITHUB_TOKEN)"
+    cli:
+      name: me
+      documentation: "Print the authenticated user (a safe auth probe)."
+    tests:
+      # Only a parameterless op can carry cli/mcp cases: the emitter renders those calls with no
+      # arguments, so every parameterized op below gets client-kind cases (authored `call`) only.
+      - {name: users_client_me, kind: client, http_method: GET, path: user, status: 200,
+         response_json: {login: octocat, id: 583231, name: "The Octocat"},
+         call: "GithubClient(github_token=\"t\").users.me()",
+         asserts: ["isinstance(users, User)", "users.login == \"octocat\" and users.id == 583231"]}
+      - {name: users_cli_me, kind: cli, http_method: GET, path: user, status: 200,
+         response_json: {login: octocat, id: 583231, name: "The Octocat"},
+         asserts: ["res.exit_code == 0", "json.loads(res.stdout)[\"login\"] == \"octocat\""]}
+      - {name: users_mcp_me, kind: mcp, http_method: GET, path: user, status: 200,
+         response_json: {login: octocat, id: 583231, name: "The Octocat"},
+         asserts: ["result.data.login == \"octocat\""]}
+      - {name: users_mcp_auth_guard, kind: mcp_guard, http_method: GET, path: user, status: 401,
+         response_json: {}}
+      - {name: users_mcp_empty_response_guard, kind: mcp_guard, http_method: GET, path: user,
+         status: 200, response_json: {}}
+  - name: get
+    method: GET
+    path: users/{username}
+    operationId: users_get
+    documentation: |-
+      ``GET /users/{username}`` → that user's public profile.
+
+      Example:
+          >>> client = GithubClient(github_token="…")  # doctest: +SKIP
+          >>> client.users.get("octocat").login  # doctest: +SKIP
+          'octocat'
+    params:
+      - {name: username, loc: path, type: string, help: "The handle for the GitHub user account."}
+    responses:
+      200: {model: User}
+    mcp:
+      name: users_get
+      safety: RO
+      title: "Get a GitHub user"
+      documentation: "The public profile of one GitHub user, by handle."
+    # No cli facet: the CLI emitter renders a READ command as a parameterless passthrough, which
+    # would drop `username` and emit a call the client rejects.
+    tests:
+      - {name: users_client_get, kind: client, http_method: GET, path: users/octocat, status: 200,
+         response_json: {login: octocat, id: 583231, html_url: "https://github.com/octocat"},
+         call: "GithubClient(github_token=\"t\").users.get(\"octocat\")",
+         asserts: ["isinstance(users, User)", "users.html_url == \"https://github.com/octocat\""]}
