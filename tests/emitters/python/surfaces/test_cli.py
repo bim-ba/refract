@@ -4,10 +4,10 @@ CTX = python_backend().context("ycli.yandex.tracker")
 
 
 def _surface():
-    from refract.emitters.python.surfaces.cli import CliSurface
+    from refract.emitters.python.surfaces import CLI_SURFACE, TemplateSurface
     from refract.emitters.python.templating import make_template_environment
 
-    return CliSurface(make_template_environment())
+    return TemplateSurface(CLI_SURFACE, make_template_environment())
 
 
 def _emit(res):

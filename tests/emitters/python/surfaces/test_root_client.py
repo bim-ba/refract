@@ -30,10 +30,10 @@ CTX = python_backend().context(
 
 def _emit(resources):
     from refract.emitters.python.format import RuffFormatter
-    from refract.emitters.python.surfaces.root_client import RootClientSurface
+    from refract.emitters.python.surfaces import ROOT_CLIENT_SURFACE, TemplateDomainSurface
     from refract.emitters.python.templating import make_template_environment
 
-    surface = RootClientSurface(make_template_environment())
+    surface = TemplateDomainSurface(ROOT_CLIENT_SURFACE, make_template_environment())
     return RuffFormatter().format(surface.emit(resources, CTX))
 
 

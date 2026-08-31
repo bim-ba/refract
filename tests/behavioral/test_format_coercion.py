@@ -15,7 +15,7 @@ import pytest
 
 from refract.emitters.python.backend import python_backend
 from refract.emitters.python.format import RuffFormatter
-from refract.emitters.python.surfaces.models import ModelsSurface
+from refract.emitters.python.surfaces import MODELS_SURFACE, TemplateSurface
 from refract.emitters.python.templating import make_template_environment
 from refract.spec.loader import SpecLoader
 
@@ -53,7 +53,7 @@ def _write_models_module(tmp_path):
 
     env = make_template_environment()
     ctx = python_backend().context("widgetpkg.demo")
-    source = RuffFormatter().format(ModelsSurface(env).emit(res, ctx))
+    source = RuffFormatter().format(TemplateSurface(MODELS_SURFACE, env).emit(res, ctx))
 
     pkg = tmp_path / "widgetpkg"
     (pkg / "demo").mkdir(parents=True)

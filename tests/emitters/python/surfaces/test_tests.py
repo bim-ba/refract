@@ -25,10 +25,10 @@ CTX = python_backend().context(
 
 
 def _surface():
-    from refract.emitters.python.surfaces.tests import TestsSurface
+    from refract.emitters.python.surfaces import TESTS_SURFACE, TemplateSurface
     from refract.emitters.python.templating import make_template_environment
 
-    return TestsSurface(make_template_environment())
+    return TemplateSurface(TESTS_SURFACE, make_template_environment())
 
 
 def _emit(res):

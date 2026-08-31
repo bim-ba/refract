@@ -1,5 +1,5 @@
 from refract.emitters.python.backend import python_backend
-from refract.emitters.python.surfaces.package import PackageSurface
+from refract.emitters.python.surfaces import PackageSurface
 
 CTX = python_backend().context("ycli.yandex.tracker")
 

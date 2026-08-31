@@ -5,18 +5,18 @@ CTX = python_backend().context("ycli.yandex.tracker")
 
 def _emit(res):
     from refract.emitters.python.format import RuffFormatter
-    from refract.emitters.python.surfaces.models import ModelsSurface
+    from refract.emitters.python.surfaces import MODELS_SURFACE, TemplateSurface
     from refract.emitters.python.templating import make_template_environment
 
-    surface = ModelsSurface(make_template_environment())
+    surface = TemplateSurface(MODELS_SURFACE, make_template_environment())
     return RuffFormatter().format(surface.emit(res, CTX))
 
 
 def test_models_applies_gates_on_models(me_resource):
-    from refract.emitters.python.surfaces.models import ModelsSurface
+    from refract.emitters.python.surfaces import MODELS_SURFACE, TemplateSurface
     from refract.emitters.python.templating import make_template_environment
 
-    surface = ModelsSurface(make_template_environment())
+    surface = TemplateSurface(MODELS_SURFACE, make_template_environment())
     assert surface.applies(me_resource) is True
 
 

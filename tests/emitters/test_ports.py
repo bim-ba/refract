@@ -98,6 +98,20 @@ def test_domain_emitter_runs_once_over_all_resources():
     assert root.emit((_resource(),), ctx) == "# tracker: 1"
 
 
+def test_domain_emitter_applies_defaults_to_true():
+    """The published default: a DomainEmitter that declares no gate always applies. Every surface
+    in the Python table states its own gate, so this arm is reachable only through the ABC - which
+    is exactly the contract a new backend implements (docs/adding-a-language.md)."""
+
+    class _AlwaysOn(DomainEmitter):
+        name = "root_client"
+
+        def emit(self, resources, ctx):
+            return ""
+
+    assert _AlwaysOn().applies((_resource(),)) is True
+
+
 def test_domain_emitter_cannot_be_instantiated():
     with pytest.raises(TypeError):
         DomainEmitter()  # abstract emit(resources, ctx)

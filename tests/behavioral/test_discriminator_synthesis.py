@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from refract.emitters.python.backend import python_backend
 from refract.emitters.python.format import RuffFormatter
-from refract.emitters.python.surfaces.models import ModelsSurface
+from refract.emitters.python.surfaces import MODELS_SURFACE, TemplateSurface
 from refract.emitters.python.templating import make_template_environment
 from refract.spec.loader import SpecLoader
 
@@ -63,7 +63,7 @@ def _write_models_module(tmp_path):
 
     env = make_template_environment()
     ctx = python_backend().context("blockpkg.notion")
-    source = RuffFormatter().format(ModelsSurface(env).emit(res, ctx))
+    source = RuffFormatter().format(TemplateSurface(MODELS_SURFACE, env).emit(res, ctx))
 
     pkg = tmp_path / "blockpkg"
     (pkg / "notion").mkdir(parents=True)
@@ -150,7 +150,7 @@ def test_generated_optional_discriminated_union_is_omittable_and_discriminates(
     res = SpecLoader.load(resource_yaml)
     env = make_template_environment()
     ctx = python_backend().context("pagepkg.notion")
-    source = RuffFormatter().format(ModelsSurface(env).emit(res, ctx))
+    source = RuffFormatter().format(TemplateSurface(MODELS_SURFACE, env).emit(res, ctx))
     assert 'Field(discriminator="type", default=None)' in source
 
     pkg = tmp_path / "pagepkg"
@@ -225,7 +225,7 @@ def test_shared_variant_set_emits_one_tag_per_variant(tmp_path, monkeypatch):
     res = SpecLoader.load(resource_yaml)
     env = make_template_environment()
     ctx = python_backend().context("petpkg.notion")
-    source = RuffFormatter().format(ModelsSurface(env).emit(res, ctx))
+    source = RuffFormatter().format(TemplateSurface(MODELS_SURFACE, env).emit(res, ctx))
     assert source.count('kind: Literal["cat"]') == 1  # was 2 - one per holder
     assert source.count('kind: Literal["dog"]') == 1
 
