@@ -41,7 +41,7 @@ def _mcp_tool(
     """The finished text for one ``@mcp.tool`` function, forwarding into the client (with a
     guard when ``require_found`` is declared).
 
-    The def name is ``naming.module_function`` (``list`` -> ``list_``). The safety symbol goes
+    The def name is ``naming.identifier`` (``list`` -> ``list_``). The safety symbol goes
     into the generated code as ``meta.safety.value`` (the raw ``"RO"``/``"WRITE"``/...). The
     guard is formatted as one logical ``require_found(...)`` call - ruff wraps it across lines."""
     annotations = f'{{**{meta.safety.value}, "title": {py_str(meta.title)}}}'

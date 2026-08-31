@@ -132,8 +132,21 @@ def _mock_url(op: ir.Operation, case: ir.TestCase, base_url: str, ctx: EmitConte
     ``{{a}}`` collapses to the literal ``{a}`` exactly as the f-string would.
 
     ``SpecLoader`` requires a case's ``path_args`` to match the operation's declared path params
-    EXACTLY, so every slot has a value by the time the IR reaches here.
+    EXACTLY, so every slot has a value on the spec path. The check below is the backstop for IR
+    from any other producer (``model_copy`` does not re-validate): without it a missing value
+    surfaces as a bare ``KeyError`` from ``str.format`` naming neither the operation nor the case,
+    and the alternative - stubbing a URL with an unsubstituted ``{placeholder}`` - is a mock the
+    generated client can never request.
     """
+    provided = {name for name, _value in case.path_args}
+    missing = [
+        param.name for param in op.params if param.loc == "path" and param.name not in provided
+    ]
+    if missing:
+        raise SpecError(
+            f"{op.name}: test {case.name!r} provides no value for path param "
+            f"{', '.join(repr(name) for name in missing)}"
+        )
     values = {ctx.naming.identifier(name): value for name, value in case.path_args}
     return f"{base_url}/{path_template(op.path, op.params, ctx).format(**values)}"
 

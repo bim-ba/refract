@@ -152,15 +152,6 @@ def _cli_case() -> ir.TestCase:
     )
 
 
-def test_operation_rejects_a_test_kind_naming_an_undeclared_facet():
-    """A cli-kind case has no command to invoke when the operation declares no `cli:` facet - the
-    emitted test could only ever fail, so the illegal combo is rejected at construction."""
-    with pytest.raises(ValidationError, match=r"cli-kind but the operation declares no 'cli'"):
-        ir.Operation(
-            name="get", method="GET", path="widgets", operation_id="w_get", tests=(_cli_case(),)
-        )
-
-
 def test_operation_accepts_a_test_kind_whose_facet_is_declared():
     """The control: the same case passes once the operation carries the facet it names."""
     op = ir.Operation(
@@ -172,6 +163,40 @@ def test_operation_accepts_a_test_kind_whose_facet_is_declared():
         tests=(_cli_case(),),
     )
     assert op.tests[0].kind is ir.TestKind.CLI
+
+
+@pytest.mark.parametrize(
+    ("kind", "facet"),
+    [
+        (ir.TestKind.CLI, "cli"),
+        (ir.TestKind.MCP, "mcp"),
+        (ir.TestKind.MCP_GUARD, "mcp"),
+    ],
+)
+def test_operation_rejects_every_facet_bearing_kind(kind, facet):
+    """Each non-client kind names the facet it invokes. Pins the whole mapping: dropping the mcp
+    rows leaves a `kind: mcp` case with no tool to call, and the emitted test would only fail.
+
+    Built as IR directly - `OperationSpec.mcp` is required on the YAML path, so the mcp rows are
+    unreachable through SpecLoader and a spec fixture could not drive them."""
+    case = _cli_case().model_copy(update={"kind": kind})
+    with pytest.raises(
+        ValidationError, match=rf"{kind.value}-kind but the operation declares no '{facet}'"
+    ):
+        ir.Operation(name="get", method="GET", path="widgets", operation_id="w_get", tests=(case,))
+
+
+def test_operation_accepts_an_mcp_case_when_the_mcp_facet_is_declared():
+    """The control for the mcp rows: the same cases pass once the operation carries `mcp:`."""
+    mcp = ir.MCPTool(name="get", safety=ir.Safety.RO, title="Get", documentation="Get.")
+    cases = tuple(
+        _cli_case().model_copy(update={"kind": kind, "name": f"case_{kind.value}"})
+        for kind in (ir.TestKind.MCP, ir.TestKind.MCP_GUARD)
+    )
+    op = ir.Operation(
+        name="get", method="GET", path="widgets", operation_id="w_get", mcp=mcp, tests=cases
+    )
+    assert [case.kind for case in op.tests] == [ir.TestKind.MCP, ir.TestKind.MCP_GUARD]
 
 
 def test_operation_accepts_a_client_case_without_any_facet():

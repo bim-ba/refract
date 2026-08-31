@@ -20,7 +20,7 @@ def _client_method(op: ir.Operation, ctx: EmitContext) -> tuple[str, list[Import
     """One thin-sugar method leaf: `<op.name>` -> `return self._session.send(_requests.<fn>(...))`.
 
     Built at module nesting (docstring/body at 4 spaces), then indented one level to sit inside
-    the class. Method name is verbatim `op.name`; the builder call uses `module_function(op.name)`
+    the class. Method name is verbatim `op.name`; the builder call uses `naming.identifier(op.name)`
     (the shadow guard, so `list` -> `_requests.list_`). Docstring is the FULL `op.documentation`.
     """
     body = op.body  # write iff not None (narrowed to ir.Body below)

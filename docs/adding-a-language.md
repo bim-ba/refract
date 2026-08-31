@@ -14,15 +14,21 @@ refract's varying axes are all strategy registries - a new backend is additive (
    neutral core: `ir` (`src/refract/ir/`), the local read/write branch on `op.body is not None` (there is
    no `classify`/`OpShape`), `resolve._common.render_imports`/`signature_params`.
 4. **List your surfaces in a table.** A surface is four values - name, `applies` gate, resolver,
-   template filename - so `emitters/python/surfaces.py` holds one `SurfaceSpec` row per surface and two
-   generic emitters (`TemplateSurface`, `TemplateDomainSurface`) that read them; `PackageSurface` is the
-   one surface outside the table (no view, no template). Mirror that shape, or write plain
-   `SurfaceEmitter` classes - the driver only calls `applies()` + `emit()`.
+   template filename - so `emitters/python/surfaces.py` holds one row per surface plus the generic
+   emitter that reads it. There are TWO row types, differing only in arity: `SurfaceSpec` (per-resource,
+   read by `TemplateSurface`, gate and resolver take one `ir.Resource`) and `DomainSurfaceSpec`
+   (per-domain, read by `TemplateDomainSurface`, both take the domain's whole `tuple[ir.Resource, ...]`).
+   `PackageSurface` is the one surface outside the table - no page view, no template. Mirror that shape,
+   or write plain `SurfaceEmitter`/`DomainEmitter` classes: the driver only calls `applies()` + `emit()`.
 5. **Compose the per-API glue (`domain_surfaces`) + auth mechanism.** Implement a `DomainEmitter`
    (the root client, `src/refract/emitters/ports.py`): aggregate the resources and build your language's HTTP client + auth from
    `ctx.config` (`ir.ClientConfig`, `src/refract/ir/client.py`) - select the mechanism per `AuthScheme.kind` (`src/refract/ir/auth.py`) and reuse the
    `httpx.Auth` mechanism library in `runtime/auth.py` (`src/refract/runtime/`), growing it by rule-of-three. It runs ONCE
-   over all of a domain's resources (not per-resource).
+   over all of a domain's resources (not per-resource). A hand-written `DomainEmitter` that declares no
+   `applies()` inherits the ABC's `return True` default and so emits for every domain; override it to
+   gate on domain-level data, the way `shared_models` skips a domain with no `_models.yaml`. (A
+   `DomainSurfaceSpec` row has no such default - every row states its gate, `root_client`'s being
+   `lambda resources: True`.)
 6. **Register** `@backend("<lang>")` in `emitters/<lang>/backend.py`, composing your strategies +
    `surfaces` (per-resource) + `domain_surfaces` (root client) into a `LanguageBackend`. The driver builds
    each resolver's `EmitContext` through `LanguageBackend.context(...)`, which pairs the caller's

@@ -8,9 +8,12 @@ f-string is built from) formatted with the test case's ``path_args``, so the two
 
 from __future__ import annotations
 
+import pytest
+
 from refract import ir
 from refract.emitters.python.backend import python_backend
 from refract.emitters.python.resolve.tests import resolve_tests
+from refract.spec import SpecError
 
 CTX = python_backend().context(
     "ycli.widget.widgets",
@@ -73,3 +76,13 @@ def test_placeholderless_path_is_unchanged():
     """Regression control: the corpus shape (no placeholder, no args) renders as before."""
     page = resolve_tests(_resource(_op("widgets", (), ())), CTX)
     assert '_URL_get = "https://api.widget.example/widgets"' in page.constants
+
+
+def test_missing_path_arg_fails_loud():
+    """The loader matches path_args to the declared path params exactly, so this shape can only
+    reach the emitter from another IR producer (`model_copy` does not re-validate). It must name
+    the operation, the case and the param - a bare `KeyError` from `str.format` names none of
+    them, and stubbing a brace-bearing URL would emit a mock the client can never request."""
+    op = _op("widgets/{widget_id}", ("widget_id",), ())
+    with pytest.raises(SpecError, match=r"test 'get_client'.*no value for path param 'widget_id'"):
+        resolve_tests(_resource(op), CTX)
