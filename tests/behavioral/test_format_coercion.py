@@ -13,11 +13,14 @@ import sys
 
 import pytest
 
+from refract import ir
 from refract.emitters.python.backend import python_backend
 from refract.emitters.python.format import RuffFormatter
 from refract.emitters.python.surfaces import MODELS_SURFACE, TemplateSurface
 from refract.emitters.python.templating import make_template_environment
 from refract.spec.loader import SpecLoader
+
+_CONFIG = ir.ClientConfig(name="k8s", server=ir.Server(base_url="https://api.example"))
 
 pytestmark = pytest.mark.behavioral
 
@@ -52,7 +55,7 @@ def _write_models_module(tmp_path):
     res = SpecLoader.load(resource_yaml)
 
     env = make_template_environment()
-    ctx = python_backend().context("widgetpkg.demo")
+    ctx = python_backend().context("widgetpkg.demo", _CONFIG)
     source = RuffFormatter().format(TemplateSurface(MODELS_SURFACE, env).emit(res, ctx))
 
     pkg = tmp_path / "widgetpkg"

@@ -12,6 +12,7 @@ from refract.emitters.python.resolve._common import (
 )
 from refract.emitters.python.views import TestsPageView
 from refract.ir import ObjectModel, TestKind
+from refract.spec import SpecError
 
 if TYPE_CHECKING:
     from refract import ir
@@ -130,16 +131,9 @@ def _mock_url(op: ir.Operation, case: ir.TestCase, base_url: str, ctx: EmitConte
     ``{id}`` (bound to ``id_`` in the client) and ``{widget_id}`` substitute alike, and an escaped
     ``{{a}}`` collapses to the literal ``{a}`` exactly as the f-string would.
 
-    A path param with no authored value is rejected by the loader; IR reaching the emitter from
-    any other producer fails loud here rather than stubbing an unrequestable brace-bearing URL.
+    ``SpecLoader`` requires a case's ``path_args`` to match the operation's declared path params
+    EXACTLY, so every slot has a value by the time the IR reaches here.
     """
-    provided = {name for name, _value in case.path_args}
-    missing = [p.name for p in op.params if p.loc == "path" and p.name not in provided]
-    if missing:
-        raise ValueError(
-            f"{op.name}: test {case.name!r} provides no value for path param "
-            f"{', '.join(repr(name) for name in missing)}"
-        )
     values = {ctx.naming.safe_param(name): value for name, value in case.path_args}
     return f"{base_url}/{path_template(op.path, op.params, ctx).format(**values)}"
 
@@ -159,8 +153,6 @@ def _tests_constants(
 
     ONE ``_URL`` per op means one substituted path per op, so the URL is read off the first case;
     the loader rejects an operation whose cases disagree on ``path_args``."""
-    if ctx.config is None:
-        raise ValueError("tests surface requires ClientConfig (base_url)")
     url = _mock_url(op, op.tests[0], ctx.config.server.base_url, ctx)
     lines = [f"_URL_{op.name} = {py_str(url)}"]
     # `_stub` references `_PAYLOAD_<op>` for EVERY non-guard case (client/cli/mcp) - only the
@@ -208,12 +200,10 @@ def _client_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
     return "\n".join(lines)
 
 
-def _cli_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
+def _cli_test(res: ir.Resource, op: ir.Operation, command: str, case: ir.TestCase) -> str:
     """CLI case - ``CliRunner`` json-invoke of the ``<domain> <resource> <command>`` command."""
-    if op.cli is None:  # resolve_tests only calls this for cli-kind cases - fail loud otherwise
-        raise ValueError(f"{op.name}: operation has no cli facet")
     argv = ", ".join(
-        f'"{token}"' for token in ("--format", "json", res.domain, res.resource, op.cli.name)
+        f'"{token}"' for token in ("--format", "json", res.domain, res.resource, command)
     )
     lines = [
         "@responses.activate",
@@ -225,11 +215,9 @@ def _cli_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
     return "\n".join(lines)
 
 
-def _mcp_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
+def _mcp_test(res: ir.Resource, op: ir.Operation, tool: str, case: ir.TestCase) -> str:
     """MCP case - call the root-composed tool through ``root_mcp`` under ``asyncio.run``."""
-    if op.mcp is None:  # resolve_tests only calls this for mcp-kind cases - fail loud otherwise
-        raise ValueError(f"{op.name}: operation has no mcp facet")
-    root_tool = f"{res.domain}_{op.mcp.name}"
+    root_tool = f"{res.domain}_{tool}"
     lines = [
         "@responses.activate",
         f"def test_{case.name}(creds):",
@@ -245,10 +233,8 @@ def _mcp_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
     return "\n".join(lines)
 
 
-def _guard_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
+def _guard_test(res: ir.Resource, op: ir.Operation, tool: str, case: ir.TestCase) -> str:
     """MCP guard case - the resource-local tool must raise ``ToolError`` (no asserts)."""
-    if op.mcp is None:  # resolve_tests only calls this for guard cases - fail loud otherwise
-        raise ValueError(f"{op.name}: operation has no mcp facet")
     lines = ["@responses.activate", f"async def test_{case.name}(creds):"]
     if case.status == 200:
         lines.append(f'    """{_EMPTY_GUARD_DOC}"""')
@@ -256,9 +242,25 @@ def _guard_test(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
         _stub(op, case),
         f"    async with Client({res.resource}_mcp_module.mcp) as client:",
         "        with pytest.raises(ToolError):",
-        f'            await client.call_tool("{op.mcp.name}", {{}})',
+        f'            await client.call_tool("{tool}", {{}})',
     ]
     return "\n".join(lines)
+
+
+def _invoked_name(op: ir.Operation, case: ir.TestCase) -> str:
+    """The command (cli) or tool (mcp) name a non-client case invokes.
+
+    ``ir.Operation`` rejects a case whose kind names a facet the operation does not declare, so on
+    validated IR this is total; it stays fail-loud because ``model_copy`` builds an IR without
+    re-validating it.
+    """
+    facet = op.cli if case.kind is TestKind.CLI else op.mcp
+    if facet is None:
+        raise SpecError(
+            f"{op.name}: {case.kind.value} test {case.name!r} invokes a facet the operation "
+            "does not declare"
+        )
+    return facet.name
 
 
 def _test_block(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
@@ -267,11 +269,11 @@ def _test_block(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
         case TestKind.CLIENT:
             return _client_test(res, op, case)
         case TestKind.CLI:
-            return _cli_test(res, op, case)
+            return _cli_test(res, op, _invoked_name(op, case), case)
         case TestKind.MCP:
-            return _mcp_test(res, op, case)
+            return _mcp_test(res, op, _invoked_name(op, case), case)
         case TestKind.MCP_GUARD:
-            return _guard_test(res, op, case)
+            return _guard_test(res, op, _invoked_name(op, case), case)
         case _:
             assert_never(case.kind)
 

@@ -347,20 +347,23 @@ def _operation(spec: schema.OperationSpec) -> ir.Operation:
     _check_path_placeholders(spec)
     tests = tuple(_test(test, spec) for test in spec.tests)
     _check_test_path_args_agree(spec.name, tests)
-    return ir.Operation(
-        name=spec.name,
-        method=spec.method,
-        path=spec.path,
-        operation_id=spec.operation_id,
-        params=tuple(_param(param) for param in spec.params),
-        body=_body(spec.body),
-        response_model=_response_model(spec.name, spec.responses),
-        documentation=spec.documentation,
-        mcp=_mcp(spec.mcp),
-        cli=_cli(spec.cli),
-        tests=tests,
-        handler=spec.handler,
-    )
+    try:
+        return ir.Operation(
+            name=spec.name,
+            method=spec.method,
+            path=spec.path,
+            operation_id=spec.operation_id,
+            params=tuple(_param(param) for param in spec.params),
+            body=_body(spec.body),
+            response_model=_response_model(spec.name, spec.responses),
+            documentation=spec.documentation,
+            mcp=_mcp(spec.mcp),
+            cli=_cli(spec.cli),
+            tests=tests,
+            handler=spec.handler,
+        )
+    except ValidationError as error:  # IR invariants (a test kind naming an undeclared facet)
+        raise SpecError(str(error)) from error
 
 
 def _module_docs(spec: schema.ModuleDocsSpec) -> ir.ModuleDocs:

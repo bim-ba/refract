@@ -87,7 +87,7 @@ class EmitContext:
     """
 
     package_root: str  # where runtime/base/models live, e.g. "ycli.yandex.tracker"
-    config: ir.ClientConfig | None  # per-API glue; only tests (base_url) + root_client read it
+    config: ir.ClientConfig  # per-API glue; only tests (base_url) + root_client read it
     naming: Naming
     type_mapper: TypeMapper
     doc_comments: DocComments
@@ -143,7 +143,7 @@ class LanguageBackend:
     surfaces: tuple[SurfaceEmitter, ...]  # per-resource
     domain_surfaces: tuple[DomainEmitter, ...] = ()  # per-API glue (root_client)
 
-    def context(self, package_root: str, config: ir.ClientConfig | None = None) -> EmitContext:
+    def context(self, package_root: str, config: ir.ClientConfig) -> EmitContext:
         """The `EmitContext` a resolver of THIS backend reads: the caller's per-generation values
         plus this backend's own three strategies.
 

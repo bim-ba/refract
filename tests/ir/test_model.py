@@ -137,3 +137,45 @@ def test_body_carries_dump_flags_and_is_frozen():
     assert (b.by_alias, b.omit_none) == (False, False)
     with pytest.raises(ValidationError):
         b.by_alias = True  # ty: ignore[invalid-assignment]  # frozen
+
+
+def _cli_case() -> ir.TestCase:
+    return ir.TestCase(
+        name="widgets_get_cli",
+        kind=ir.TestKind.CLI,
+        http_method="GET",
+        status=200,
+        response_json={},
+        has_json=True,
+        asserts=(),
+        call="",
+    )
+
+
+def test_operation_rejects_a_test_kind_naming_an_undeclared_facet():
+    """A cli-kind case has no command to invoke when the operation declares no `cli:` facet - the
+    emitted test could only ever fail, so the illegal combo is rejected at construction."""
+    with pytest.raises(ValidationError, match=r"cli-kind but the operation declares no 'cli'"):
+        ir.Operation(
+            name="get", method="GET", path="widgets", operation_id="w_get", tests=(_cli_case(),)
+        )
+
+
+def test_operation_accepts_a_test_kind_whose_facet_is_declared():
+    """The control: the same case passes once the operation carries the facet it names."""
+    op = ir.Operation(
+        name="get",
+        method="GET",
+        path="widgets",
+        operation_id="w_get",
+        cli=ir.CLICommand(name="get", documentation="Get."),
+        tests=(_cli_case(),),
+    )
+    assert op.tests[0].kind is ir.TestKind.CLI
+
+
+def test_operation_accepts_a_client_case_without_any_facet():
+    """A client-kind case calls the client directly, so it names no facet and gates on nothing."""
+    case = _cli_case().model_copy(update={"kind": ir.TestKind.CLIENT})
+    op = ir.Operation(name="get", method="GET", path="widgets", operation_id="w_get", tests=(case,))
+    assert op.tests[0].kind is ir.TestKind.CLIENT

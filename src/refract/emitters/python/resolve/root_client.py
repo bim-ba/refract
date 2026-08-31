@@ -58,8 +58,6 @@ def resolve_root_client(resources: tuple[ir.Resource, ...], ctx: EmitContext) ->
     """IR + ClientConfig -> RootClientPageView: the composition root. Runs once over ALL
     resources (per-API invariant: shared ``domain`` + ``security``, so read from ``resources[0]``).
     """
-    if ctx.config is None:
-        raise ValueError("root_client surface requires ClientConfig (server + auth)")
     domain = resources[0].domain
     client_class = ctx.naming.class_name(domain, "Client")
     scheme = _select_scheme(ctx.config, resources[0].security)

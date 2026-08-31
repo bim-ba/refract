@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from pydantic import BaseModel, ConfigDict, JsonValue, model_validator
 from pydantic import Field as PydanticField  # `Field` (below) is the IR model-field class
 
 from refract.ir.types import NeutralType
@@ -116,6 +116,11 @@ class TestCase(_IR):
     call: str
 
 
+# A test case renders THROUGH the facet its kind names: a `cli` case invokes `cli.name`, an `mcp`
+# or `mcp_guard` case calls `mcp.name`. A `client` case needs no facet, so it is absent here.
+_FACET_FOR_TEST_KIND = {TestKind.CLI: "cli", TestKind.MCP: "mcp", TestKind.MCP_GUARD: "mcp"}
+
+
 class Operation(_IR):
     name: str
     method: str
@@ -129,6 +134,24 @@ class Operation(_IR):
     cli: CLICommand | None = None
     tests: tuple[TestCase, ...] = ()
     handler: str | None = None  # carried for fidelity; not yet read by any emitter
+
+    @model_validator(mode="after")
+    def _tests_have_the_facet_their_kind_names(self) -> Operation:
+        """A ``cli``-kind test on an operation with no ``cli:`` facet (or an ``mcp``-kind one with
+        no ``mcp:``) has no command to invoke - the emitted test could only ever fail.
+
+        Enforced on the TYPE, not only in the spec loader, so any IR producer building the illegal
+        combo fails at construction; through ``SpecLoader`` it surfaces as a ``SpecError`` naming
+        the file, where it used to reach the tests emitter as a bare ``ValueError``.
+        """
+        for case in self.tests:
+            facet = _FACET_FOR_TEST_KIND.get(case.kind)
+            if facet is not None and getattr(self, facet) is None:
+                raise ValueError(
+                    f"operation {self.name!r}: test {case.name!r} is {case.kind.value}-kind but "
+                    f"the operation declares no {facet!r} facet"
+                )
+        return self
 
 
 class ModuleDocs(_IR):

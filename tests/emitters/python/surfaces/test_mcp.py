@@ -1,6 +1,9 @@
+from refract import ir
 from refract.emitters.python.backend import python_backend
 
-CTX = python_backend().context("ycli.yandex.tracker")
+_CONFIG = ir.ClientConfig(name="tracker", server=ir.Server(base_url="https://api.example"))
+
+CTX = python_backend().context("ycli.yandex.tracker", _CONFIG)
 
 
 def _surface():

@@ -13,11 +13,14 @@ import sys
 import pytest
 from pydantic import ValidationError
 
+from refract import ir
 from refract.emitters.python.backend import python_backend
 from refract.emitters.python.format import RuffFormatter
 from refract.emitters.python.surfaces import MODELS_SURFACE, TemplateSurface
 from refract.emitters.python.templating import make_template_environment
 from refract.spec.loader import SpecLoader
+
+_CONFIG = ir.ClientConfig(name="k8s", server=ir.Server(base_url="https://api.example"))
 
 pytestmark = pytest.mark.behavioral
 
@@ -62,7 +65,7 @@ def _write_models_module(tmp_path):
     res = SpecLoader.load(resource_yaml)
 
     env = make_template_environment()
-    ctx = python_backend().context("blockpkg.notion")
+    ctx = python_backend().context("blockpkg.notion", _CONFIG)
     source = RuffFormatter().format(TemplateSurface(MODELS_SURFACE, env).emit(res, ctx))
 
     pkg = tmp_path / "blockpkg"
@@ -149,7 +152,7 @@ def test_generated_optional_discriminated_union_is_omittable_and_discriminates(
     resource_yaml.write_text(_OPTIONAL_UNION_YAML, encoding="utf-8")
     res = SpecLoader.load(resource_yaml)
     env = make_template_environment()
-    ctx = python_backend().context("pagepkg.notion")
+    ctx = python_backend().context("pagepkg.notion", _CONFIG)
     source = RuffFormatter().format(TemplateSurface(MODELS_SURFACE, env).emit(res, ctx))
     assert 'Field(discriminator="type", default=None)' in source
 
@@ -224,7 +227,7 @@ def test_shared_variant_set_emits_one_tag_per_variant(tmp_path, monkeypatch):
     resource_yaml.write_text(_SHARED_VARIANT_SET_YAML, encoding="utf-8")
     res = SpecLoader.load(resource_yaml)
     env = make_template_environment()
-    ctx = python_backend().context("petpkg.notion")
+    ctx = python_backend().context("petpkg.notion", _CONFIG)
     source = RuffFormatter().format(TemplateSurface(MODELS_SURFACE, env).emit(res, ctx))
     assert source.count('kind: Literal["cat"]') == 1  # was 2 - one per holder
     assert source.count('kind: Literal["dog"]') == 1

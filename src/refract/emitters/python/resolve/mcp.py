@@ -44,16 +44,15 @@ def _mcp_call_args(op: ir.Operation, ctx: EmitContext) -> str:
     return ", ".join(call_args)
 
 
-def _mcp_tool(res: ir.Resource, op: ir.Operation, ctx: EmitContext) -> tuple[str, list[Import]]:
+def _mcp_tool(
+    res: ir.Resource, op: ir.Operation, meta: ir.MCPTool, ctx: EmitContext
+) -> tuple[str, list[Import]]:
     """The finished text for one ``@mcp.tool`` function, forwarding into the client (with a
     guard when ``require_found`` is declared).
 
     The def name is ``naming.module_function`` (``list`` -> ``list_``). The safety symbol goes
     into the generated code as ``meta.safety.value`` (the raw ``"RO"``/``"WRITE"``/...). The
     guard is formatted as one logical ``require_found(...)`` call - ruff wraps it across lines."""
-    meta = op.mcp
-    if meta is None:  # resolve_mcp only calls this for mcp-faceted ops - fail loud if that changes
-        raise ValueError(f"{op.name}: operation has no mcp facet")
     annotations = f'{{**{meta.safety.value}, "title": {py_str(meta.title)}}}'
     decorator = (
         f"@mcp.tool(name={py_str(meta.name)}, annotations={annotations}, "
@@ -105,7 +104,7 @@ def resolve_mcp(res: ir.Resource, ctx: EmitContext) -> McpPageView:
             imports.append(Import(models_module, op.body.model))
         if meta.require_found is not None:
             imports.append(Import(_shared_models_module(ctx), "require_found"))
-        text, tool_imports = _mcp_tool(res, op, ctx)
+        text, tool_imports = _mcp_tool(res, op, meta, ctx)
         tools.append(text)
         imports += tool_imports
     return McpPageView(

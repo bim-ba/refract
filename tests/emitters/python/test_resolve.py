@@ -12,7 +12,6 @@ from refract.emitters.python.resolve._common import (
     render_imports,
     signature_params,
 )
-from refract.emitters.python.resolve.cli import _cli_command
 from refract.emitters.python.resolve.client import _client_method
 from refract.emitters.python.resolve.mcp import _mcp_tool, resolve_mcp
 from refract.emitters.python.resolve.models import _model_field, resolve_models
@@ -20,16 +19,15 @@ from refract.emitters.python.resolve.requests import _request_function
 from refract.emitters.python.resolve.root_client import _select_scheme, resolve_root_client
 from refract.emitters.python.resolve.tests import (
     _body_test_imports,
-    _cli_test,
-    _guard_test,
-    _mcp_test,
+    _invoked_name,
     resolve_tests,
 )
 from refract.ir.types import UnionType
 from refract.spec import SpecError
 
+_CONFIG = ir.ClientConfig(name="tracker", server=ir.Server(base_url="https://api.example"))
 BACKEND = python_backend()
-CTX = BACKEND.context("ycli.yandex.tracker")
+CTX = BACKEND.context("ycli.yandex.tracker", _CONFIG)
 
 
 def test_render_imports_groups_and_merges():
@@ -290,42 +288,27 @@ def test_client_method_guards_shadowed_identifiers():
 
 def test_mcp_tool_guards_shadowed_identifiers():
     """The guard flows through `signature_and_call` into the MCP tool signature + client call."""
-    op = _shadowed_op().model_copy(
-        update={
-            "mcp": ir.MCPTool(
-                name="widget_fetch",
-                safety=ir.Safety.RO,
-                title="Fetch a widget",
-                documentation="Fetch a widget.",
-            )
-        }
+    meta = ir.MCPTool(
+        name="widget_fetch",
+        safety=ir.Safety.RO,
+        title="Fetch a widget",
+        documentation="Fetch a widget.",
     )
+    op = _shadowed_op().model_copy(update={"mcp": meta})
     res = ir.Resource(
         domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
     )
-    text, _imports = _mcp_tool(res, op, CTX)
+    text, _imports = _mcp_tool(res, op, meta, CTX)
     ast.parse(text)
     assert "id_: str" in text
     assert "type_: str | None = None" in text
     assert "client.widgets.fetch(id_, type_=type_)" in text
 
 
-def test_cli_command_raises_without_cli_facet(me_resource):
-    op = me_resource.operations[0].model_copy(update={"cli": None})
-    with pytest.raises(ValueError, match="no cli facet"):
-        _cli_command(me_resource, op, CTX)
-
-
-def test_mcp_tool_raises_without_mcp_facet(me_resource):
-    op = me_resource.operations[0].model_copy(update={"mcp": None})
-    with pytest.raises(ValueError, match="no mcp facet"):
-        _mcp_tool(me_resource, op, CTX)
-
-
 def test_resolve_mcp_skips_operations_without_mcp_facet(me_resource):
     bare = me_resource.operations[0].model_copy(update={"name": "bare", "mcp": None})
     res = me_resource.model_copy(update={"operations": (*me_resource.operations, bare)})
-    ctx = BACKEND.context("ycli.yandex.tracker")
+    ctx = BACKEND.context("ycli.yandex.tracker", _CONFIG)
     page = resolve_mcp(res, ctx)
     # one real mcp-faceted op -> one tool; the bare (mcp=None) op contributes nothing
     assert len(page.tools) == 1
@@ -350,7 +333,7 @@ def test_resolve_mcp_omits_response_model_import_when_none():
     res = ir.Resource(
         domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
     )
-    ctx = BACKEND.context("ycli.yandex.tracker")
+    ctx = BACKEND.context("ycli.yandex.tracker", _CONFIG)
     page = resolve_mcp(res, ctx)
     assert "-> None:" in page.tools[0]
     assert not any("widgets.models" in line for line in page.import_lines)
@@ -567,34 +550,15 @@ def test_resolve_tests_guard_only_op_emits_no_payload():
     assert '_URL_delete = "https://api.example/widgets/x"' in page.constants
 
 
-def test_resolve_tests_raises_without_client_config(me_resource):
-    ctx = BACKEND.context("ycli.yandex.tracker")
-    with pytest.raises(ValueError, match="requires ClientConfig"):
-        resolve_tests(me_resource, ctx)
-
-
-def test_cli_test_raises_without_cli_facet(me_resource):
+def test_invoked_name_fails_loud_on_an_unvalidated_facet_drop(me_resource):
+    """`ir.Operation` rejects a cli-kind case on a facet-less operation, but `model_copy` builds
+    an IR WITHOUT re-validating it - so the tests emitter keeps one fail-loud narrowing point
+    rather than an `AttributeError` on None."""
     op = me_resource.operations[0]
     case = next(c for c in op.tests if c.kind is ir.TestKind.CLI)
     bare_op = op.model_copy(update={"cli": None})
-    with pytest.raises(ValueError, match="no cli facet"):
-        _cli_test(me_resource, bare_op, case)
-
-
-def test_mcp_test_raises_without_mcp_facet(me_resource):
-    op = me_resource.operations[0]
-    case = next(c for c in op.tests if c.kind is ir.TestKind.MCP)
-    bare_op = op.model_copy(update={"mcp": None})
-    with pytest.raises(ValueError, match="no mcp facet"):
-        _mcp_test(me_resource, bare_op, case)
-
-
-def test_guard_test_raises_without_mcp_facet(me_resource):
-    op = me_resource.operations[0]
-    case = next(c for c in op.tests if c.kind is ir.TestKind.MCP_GUARD)
-    bare_op = op.model_copy(update={"mcp": None})
-    with pytest.raises(ValueError, match="no mcp facet"):
-        _guard_test(me_resource, bare_op, case)
+    with pytest.raises(SpecError, match="invokes a facet the operation does not declare"):
+        _invoked_name(bare_op, case)
 
 
 def test_select_scheme_raises_spec_error_for_unknown_security_name():
@@ -616,12 +580,6 @@ def test_select_scheme_continues_past_non_matching_entries():
         auth=(("other", other), ("oauth_token", wanted)),
     )
     assert _select_scheme(config, "oauth_token") is wanted
-
-
-def test_resolve_root_client_raises_without_client_config(me_resource):
-    ctx = BACKEND.context("ycli.yandex.tracker")
-    with pytest.raises(ValueError, match="requires ClientConfig"):
-        resolve_root_client((me_resource,), ctx)
 
 
 def test_resolve_root_client_renders_single_header_auth(me_resource):

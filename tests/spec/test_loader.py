@@ -167,6 +167,39 @@ operations:
         SpecLoader.load(resource_yaml)
 
 
+def test_test_kind_without_its_facet_raises_spec_error(tmp_path: Path):
+    """A `kind: cli` case on an operation that declares no `cli:` facet used to load clean and
+    then blow up inside the tests emitter with a bare ValueError naming no file. `ir.Operation`
+    now rejects it, and the loader reports it as a located SpecError."""
+    resource_yaml = tmp_path / "resource.yaml"
+    resource_yaml.write_text(
+        """
+domain: t
+resource: m
+security: s
+operations:
+  - name: get
+    method: GET
+    path: p
+    operationId: get
+    responses:
+      200: {model: Widget}
+    mcp:
+      name: get
+      safety: RO
+      title: t
+      documentation: d
+    tests:
+      - name: get_cli
+        kind: cli
+        http_method: GET
+""",
+        encoding="utf-8",
+    )
+    with pytest.raises(SpecError, match=r"cli-kind but the operation declares no 'cli' facet"):
+        SpecLoader.load(resource_yaml)
+
+
 def _resource_with_field(tmp_path: Path, field_entry: str) -> Path:
     """Write a minimal resource.yaml whose single model carries `field_entry` verbatim."""
     resource_yaml = tmp_path / "resource.yaml"

@@ -56,12 +56,6 @@ def test_backend_context_carries_package_root_config_and_strategies():
     assert ctx.doc_comments is backend.doc_comments
 
 
-def test_backend_context_defaults_config_to_none():
-    """A per-resource surface (requests/client/models/cli/mcp/package) never reads `config`, so
-    the argument is optional - only tests (base_url) and root_client require it."""
-    assert python_backend().context("ycli.yandex.tracker").config is None
-
-
 def test_strategy_abcs_cannot_be_instantiated():
     with pytest.raises(TypeError):
         Naming()  # abstract

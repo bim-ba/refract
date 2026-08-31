@@ -59,7 +59,7 @@ def _partition_by_default(decls: list[str]) -> tuple[list[str], list[str]]:
 
 
 def _cli_write_parts(
-    res: ir.Resource, op: ir.Operation, ctx: EmitContext
+    res: ir.Resource, op: ir.Operation, body: ir.Body, ctx: EmitContext
 ) -> tuple[str, str, list[Import]]:
     """``(signature_tail, call_args, imports)`` for one write command.
 
@@ -75,7 +75,7 @@ def _cli_write_parts(
     from relative ``.models`` to the resource's absolute module) plus path/query scalar-type
     imports.
     """
-    option_decls, reassembly_expr, model_imports = _assembled_options(res, op, ctx)
+    option_decls, reassembly_expr, model_imports = _assembled_options(res, op, body, ctx)
     path_decls: list[str] = []
     path_names: list[str] = []
     query_decls: list[str] = []
@@ -105,7 +105,9 @@ def _cli_write_parts(
     return signature_tail, call_args, imports
 
 
-def _cli_command(res: ir.Resource, op: ir.Operation, ctx: EmitContext) -> tuple[str, list[Import]]:
+def _cli_command(
+    res: ir.Resource, op: ir.Operation, meta: ir.CLICommand, ctx: EmitContext
+) -> tuple[str, list[Import]]:
     """The finished text (+ model imports) for one ``@app.command()`` leaf.
 
     A READ op (no body) stays the param-less passthrough (byte-identical to the `me` emitter):
@@ -115,13 +117,11 @@ def _cli_command(res: ir.Resource, op: ir.Operation, ctx: EmitContext) -> tuple[
     ``app_ctx.<d>.<r>.<op>(<path>, <body>, <query>)``. The command name is author-controlled via
     ``op.cli.name`` (not necessarily ``op.name``).
     """
-    meta = op.cli
-    if meta is None:  # resolve_cli only calls this for cli-faceted ops - fail loud if that changes
-        raise ValueError(f"{op.name}: operation has no cli facet")
-    if op.body is None:  # read: param-less passthrough (unchanged)
+    body = op.body
+    if body is None:  # read: param-less passthrough (unchanged)
         signature_tail, call_args, imports = "", "", []
     else:  # write: flat options -> reassembled typed body
-        signature_tail, call_args, imports = _cli_write_parts(res, op, ctx)
+        signature_tail, call_args, imports = _cli_write_parts(res, op, body, ctx)
     call = f"app_ctx.{res.domain}.{res.resource}.{op.name}({call_args})"
     lines = [
         "@app.command()",
@@ -149,8 +149,9 @@ def resolve_cli(res: ir.Resource, ctx: EmitContext) -> CliPageView:
     blocks = [group_block]
     command_imports: list[Import] = []
     for op in res.operations:
-        if op.cli is not None:
-            text, cmd_imports = _cli_command(res, op, ctx)
+        meta = op.cli
+        if meta is not None:
+            text, cmd_imports = _cli_command(res, op, meta, ctx)
             blocks.append(text)
             command_imports += cmd_imports
     return CliPageView(
@@ -226,7 +227,7 @@ def _reject_duplicate_options(op: ir.Operation, option_names: list[str]) -> None
 
 
 def _assembled_options(
-    res: ir.Resource, op: ir.Operation, ctx: EmitContext
+    res: ir.Resource, op: ir.Operation, body: ir.Body, ctx: EmitContext
 ) -> tuple[list[str], str, list[Import]]:
     """Flatten a write op's body model into flat typer options + a body-reassembly expression.
 
@@ -247,9 +248,6 @@ def _assembled_options(
     escape hatch for anything past scalar + one-level ref, so a rejected shape reports its
     `handler:` SpecError before any deeper/dangling ref is ever resolved.
     """
-    body = op.body
-    if body is None:  # write-op only; a bodyless op reaching here is a wiring bug - fail loud
-        raise ValueError(f"{op.name}: assembled options require a write body")
     model = _require_object_model(op, require_model(res, body.model))
     # Imports open with the body model (the reassembly ctor); each accepted one-level ref target is
     # appended at the point of acceptance below - NOT via an eager `_referenced_model_names` walk,

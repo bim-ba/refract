@@ -4,7 +4,9 @@ from refract.emitters.python.resolve.client import _client_method
 from refract.emitters.python.resolve.requests import _request_function
 from refract.ir.types import ScalarType
 
-_CTX = python_backend().context("ycli.yandex.tracker")
+_CONFIG = ir.ClientConfig(name="tracker", server=ir.Server(base_url="https://api.example"))
+
+_CTX = python_backend().context("ycli.yandex.tracker", _CONFIG)
 _DELETE = ir.Operation(
     name="delete",
     method="DELETE",

@@ -8,8 +8,6 @@ f-string is built from) formatted with the test case's ``path_args``, so the two
 
 from __future__ import annotations
 
-import pytest
-
 from refract import ir
 from refract.emitters.python.backend import python_backend
 from refract.emitters.python.resolve.tests import resolve_tests
@@ -75,11 +73,3 @@ def test_placeholderless_path_is_unchanged():
     """Regression control: the corpus shape (no placeholder, no args) renders as before."""
     page = resolve_tests(_resource(_op("widgets", (), ())), CTX)
     assert '_URL_get = "https://api.widget.example/widgets"' in page.constants
-
-
-def test_missing_path_arg_fails_loud():
-    """The loader rejects this at the boundary; IR from any other producer must not silently
-    emit a brace-bearing URL either."""
-    op = _op("widgets/{widget_id}", ("widget_id",), ())
-    with pytest.raises(ValueError, match=r"test 'get_client'.*no value for path param 'widget_id'"):
-        resolve_tests(_resource(op), CTX)
