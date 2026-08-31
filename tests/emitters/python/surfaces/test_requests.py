@@ -1,19 +1,14 @@
-from refract.emitters.ports import EmitContext
+from refract.emitters.python.backend import python_backend
 
-CTX = EmitContext(package_root="ycli.yandex.tracker")
+CTX = python_backend().context("ycli.yandex.tracker")
 
 
 def _emit(res):
-    from refract.emitters.python.doc_comments import PythonDocComments
     from refract.emitters.python.format import RuffFormatter
-    from refract.emitters.python.naming import PythonNaming
     from refract.emitters.python.surfaces.requests import RequestsSurface
     from refract.emitters.python.templating import make_template_environment
-    from refract.emitters.python.types import PythonTypeMapper
 
-    surface = RequestsSurface(
-        PythonNaming(), PythonTypeMapper(), PythonDocComments(), make_template_environment()
-    )
+    surface = RequestsSurface(make_template_environment())
     return RuffFormatter().format(surface.emit(res, CTX))
 
 

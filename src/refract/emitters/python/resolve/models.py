@@ -14,10 +14,10 @@ from refract.ir import ObjectModel, RootListModel
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.ports import DocComments, EmitContext, Naming, TypeMapper
+    from refract.emitters.ports import EmitContext
 
 
-def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Import]]:
+def _model_field(field: ir.Field, ctx: EmitContext) -> tuple[str, list[Import]]:
     """One model field line: ``name: Type = default``, ``name: Type = Field(...)`` for a
     described/aliased field, or ``name: Annotated[Type, Field(discriminator=...)]`` for a
     discriminated union - the ONE place that assembles ``Field(...)``, so a discriminated field
@@ -29,12 +29,12 @@ def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Im
     to live inside ``Annotated[...]``, ordered ``discriminator`` first, then ``alias``, then
     ``description``. Long calls stay one line - ruff wraps them.
     """
-    rendered = type_mapper.render(field.type, optional=field.optional)
+    rendered = ctx.type_mapper.render(field.type, optional=field.optional)
     imports = list(rendered.imports)
     default = (
         field.default
         if field.default is not None
-        else type_mapper.null_default(field.type, optional=field.optional)
+        else ctx.type_mapper.null_default(field.type, optional=field.optional)
     )
     text = rendered.text
     # `coercer` and `discriminator` never co-occur on one field (`format` is scalar-only; a union
@@ -79,9 +79,7 @@ def _model_field(field: ir.Field, type_mapper: TypeMapper) -> tuple[str, list[Im
     return f"    {field.name}: {text} = {field_call}", imports
 
 
-def _model_class(
-    model: ir.Model, type_mapper: TypeMapper, doc_comments: DocComments
-) -> tuple[str, list[Import]]:
+def _model_class(model: ir.Model, ctx: EmitContext) -> tuple[str, list[Import]]:
     """The finished source for one model class - dispatches over the ``Model`` union.
 
     ``RootListModel`` -> ``RootModel[list[Item]]`` with just a docstring; ``ObjectModel`` ->
@@ -93,16 +91,16 @@ def _model_class(
         case RootListModel():
             lines = [
                 f"class {model.name}(RootModel[list[{model.item}]]):",
-                *doc_comments.render(model.documentation, "    "),
+                *ctx.doc_comments.render(model.documentation, "    "),
             ]
             return "\n".join(lines), []
         case ObjectModel():
             lines = [f"class {model.name}(APIModel):"]
-            lines += doc_comments.render(model.documentation, "    ")
+            lines += ctx.doc_comments.render(model.documentation, "    ")
             lines.append("")
             imports: list[Import] = []
             for field in model.fields:
-                decl, field_imports = _model_field(field, type_mapper)
+                decl, field_imports = _model_field(field, ctx)
                 lines.append(decl)
                 imports += field_imports
             return "\n".join(lines), imports
@@ -110,9 +108,7 @@ def _model_class(
             assert_never(model)
 
 
-def _base_model_imports(
-    models: tuple[ir.Model, ...], ctx: EmitContext, type_mapper: TypeMapper
-) -> list[Import]:
+def _base_model_imports(models: tuple[ir.Model, ...], ctx: EmitContext) -> list[Import]:
     """Imports common to any models page (local resource page or the per-domain shared page):
     ``APIModel`` always, ``pydantic.Field``/``RootModel`` when a described/aliased field or a
     ``RootListModel`` is present, plus any hand-written scalar-format coercer the fields pull in."""
@@ -130,7 +126,7 @@ def _base_model_imports(
         if not isinstance(model, ObjectModel):
             continue
         for field in model.fields:
-            rendered = type_mapper.render(field.type, optional=field.optional)
+            rendered = ctx.type_mapper.render(field.type, optional=field.optional)
             if rendered.coercer is not None:
                 # The coercer helper (e.g. `coerce_int64`) is HAND-WRITTEN in the shared base
                 # module alongside `APIModel`/`require_found` - refract emits only the wiring.
@@ -139,7 +135,7 @@ def _base_model_imports(
 
 
 def _model_classes(
-    models: tuple[ir.Model, ...], type_mapper: TypeMapper, doc_comments: DocComments
+    models: tuple[ir.Model, ...], ctx: EmitContext
 ) -> tuple[list[str], list[Import]]:
     """The finished class bodies for a set of models, plus the imports their fields' types pull
     in (`_model_class`, reused verbatim for both a resource's local models and a domain's shared
@@ -147,7 +143,7 @@ def _model_classes(
     classes: list[str] = []
     imports: list[Import] = []
     for model in models:
-        text, class_imports = _model_class(model, type_mapper, doc_comments)
+        text, class_imports = _model_class(model, ctx)
         classes.append(text)
         imports += class_imports
     return classes, imports
@@ -177,46 +173,34 @@ def _shared_ref_imports(
     return imports
 
 
-def resolve_models(
-    res: ir.Resource,
-    ctx: EmitContext,
-    naming: Naming,
-    type_mapper: TypeMapper,
-    doc_comments: DocComments,
-) -> ModelsPageView:
+def resolve_models(res: ir.Resource, ctx: EmitContext) -> ModelsPageView:
     """IR -> ModelsPageView: module docstring, imports (APIModel + pydantic + those collected
     from types + shared-model cross-file imports), finished classes. ``APIModel`` is always
     imported."""
-    imports = _base_model_imports(res.models, ctx, type_mapper)
-    classes, class_imports = _model_classes(res.models, type_mapper, doc_comments)
+    imports = _base_model_imports(res.models, ctx)
+    classes, class_imports = _model_classes(res.models, ctx)
     imports += class_imports
     imports += _shared_ref_imports(res.models, {m.name for m in res.shared_models}, ctx)
     return ModelsPageView(
-        doc_block=doc_comments.render(res.module_docs.models, ""),
+        doc_block=ctx.doc_comments.render(res.module_docs.models, ""),
         header_lines=("from __future__ import annotations",),
         import_lines=render_imports(tuple(imports)),
         classes=tuple(classes),
     )
 
 
-def resolve_shared_models(
-    resources: tuple[ir.Resource, ...],
-    ctx: EmitContext,
-    naming: Naming,
-    type_mapper: TypeMapper,
-    doc_comments: DocComments,
-) -> ModelsPageView:
+def resolve_shared_models(resources: tuple[ir.Resource, ...], ctx: EmitContext) -> ModelsPageView:
     """Emit ``resources[0].shared_models`` ONCE (a DomainEmitter, run per-domain) - identical
     across the domain by Task 9's ``_attach_shared``, so any one resource's ``shared_models``
     tuple stands in for the whole domain's. Reuses ``_model_class`` verbatim; no shared-import
     scan here, since a ref among shared models resolves to the SAME emitted file (local, not
     cross-file)."""
     models = resources[0].shared_models
-    imports = _base_model_imports(models, ctx, type_mapper)
-    classes, class_imports = _model_classes(models, type_mapper, doc_comments)
+    imports = _base_model_imports(models, ctx)
+    classes, class_imports = _model_classes(models, ctx)
     imports += class_imports
     return ModelsPageView(
-        doc_block=doc_comments.render(
+        doc_block=ctx.doc_comments.render(
             f"Shared models for the {resources[0].domain_title} API.", ""
         ),
         header_lines=("from __future__ import annotations",),

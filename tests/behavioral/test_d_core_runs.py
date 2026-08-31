@@ -8,16 +8,13 @@ import pytest
 from typer.testing import CliRunner
 
 from refract import ir
-from refract.emitters.ports import EmitContext
-from refract.emitters.python.doc_comments import PythonDocComments
+from refract.emitters.python.backend import python_backend
 from refract.emitters.python.format import RuffFormatter
-from refract.emitters.python.naming import PythonNaming
 from refract.emitters.python.surfaces.cli import CliSurface
 from refract.emitters.python.surfaces.client import ClientSurface
 from refract.emitters.python.surfaces.requests import RequestsSurface
 from refract.emitters.python.surfaces.root_client import RootClientSurface
 from refract.emitters.python.templating import make_template_environment
-from refract.emitters.python.types import PythonTypeMapper
 from refract.ir.types import ScalarType
 
 pytestmark = pytest.mark.behavioral
@@ -83,9 +80,9 @@ _CONFIG = ir.ClientConfig(
 
 
 def _write_pkg(tmp_path):
-    parts = (PythonNaming(), PythonTypeMapper(), PythonDocComments(), make_template_environment())
+    env = make_template_environment()
     fmt = RuffFormatter()
-    ctx = EmitContext(package_root="demopkg", config=_CONFIG)
+    ctx = python_backend().context("demopkg", _CONFIG)
 
     pkg = tmp_path / "demopkg"
     (pkg / "widget").mkdir(parents=True)
@@ -113,13 +110,13 @@ def _write_pkg(tmp_path):
     )
 
     (pkg / "widget" / "_requests.py").write_text(
-        fmt.format(RequestsSurface(*parts).emit(_WIDGET, ctx)), encoding="utf-8"
+        fmt.format(RequestsSurface(env).emit(_WIDGET, ctx)), encoding="utf-8"
     )
     (pkg / "widget" / "client.py").write_text(
-        fmt.format(ClientSurface(*parts).emit(_WIDGET, ctx)), encoding="utf-8"
+        fmt.format(ClientSurface(env).emit(_WIDGET, ctx)), encoding="utf-8"
     )
     (pkg / "client.py").write_text(  # root-client glue: DomainEmitter runs over the resource tuple
-        fmt.format(RootClientSurface(*parts).emit((_WIDGET,), ctx)), encoding="utf-8"
+        fmt.format(RootClientSurface(env).emit((_WIDGET,), ctx)), encoding="utf-8"
     )
     return pkg
 
@@ -161,9 +158,9 @@ def test_generated_requests_with_shadowed_param_is_ruff_clean(tmp_path):
     identifiers so the generated `_requests.py` is A002-clean. `ruff check --select A002` is forced
     because a file rendered under `tmp_path` does not inherit the project's ruff `select` config
     (defaults omit the flake8-builtins `A` group), which would make an unqualified check vacuous."""
-    parts = (PythonNaming(), PythonTypeMapper(), PythonDocComments(), make_template_environment())
-    ctx = EmitContext(package_root="demopkg", config=_CONFIG)
-    source = RuffFormatter().format(RequestsSurface(*parts).emit(_SHADOW_WIDGET, ctx))
+    env = make_template_environment()
+    ctx = python_backend().context("demopkg", _CONFIG)
+    source = RuffFormatter().format(RequestsSurface(env).emit(_SHADOW_WIDGET, ctx))
     assert "def fetch(id_: str, *, type_: str | None = None)" in source  # guard is active
     assert 'path=f"widget/{id_}"' in source  # path references the guarded var; URL unchanged
     module = tmp_path / "_requests.py"
@@ -193,10 +190,10 @@ _CLI_WIDGET = _WIDGET.model_copy(
 def _write_cli(tmp_path, pkg):
     """Generate the assembled `create` command into the package, plus the ycli-side AppContext /
     Serializer shims the generated cli.py imports (`ycli.cli.context` / `ycli.cli.output`)."""
-    parts = (PythonNaming(), PythonTypeMapper(), PythonDocComments(), make_template_environment())
-    ctx = EmitContext(package_root="demopkg", config=_CONFIG)
+    env = make_template_environment()
+    ctx = python_backend().context("demopkg", _CONFIG)
     (pkg / "widget" / "cli.py").write_text(
-        RuffFormatter().format(CliSurface(*parts).emit(_CLI_WIDGET, ctx)), encoding="utf-8"
+        RuffFormatter().format(CliSurface(env).emit(_CLI_WIDGET, ctx)), encoding="utf-8"
     )
     cli_shim = tmp_path / "ycli" / "cli"
     cli_shim.mkdir(parents=True)

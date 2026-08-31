@@ -3,9 +3,8 @@ import ast
 import pytest
 
 from refract import ir
-from refract.emitters.ports import EmitContext, Import
-from refract.emitters.python.doc_comments import PythonDocComments
-from refract.emitters.python.naming import PythonNaming
+from refract.emitters.ports import Import
+from refract.emitters.python.backend import python_backend
 from refract.emitters.python.resolve._common import (
     _referenced_model_names,
     indent_lines,
@@ -26,14 +25,11 @@ from refract.emitters.python.resolve.tests import (
     _mcp_test,
     resolve_tests,
 )
-from refract.emitters.python.types import PythonTypeMapper
 from refract.ir.types import UnionType
 from refract.spec import SpecError
 
-NAMING = PythonNaming()
-TYPE_MAPPER = PythonTypeMapper()
-DOCSTRINGS = PythonDocComments()
-CTX = EmitContext(package_root="ycli.yandex.tracker")
+BACKEND = python_backend()
+CTX = BACKEND.context("ycli.yandex.tracker")
 
 
 def test_render_imports_groups_and_merges():
@@ -95,7 +91,7 @@ def test_model_field_with_quoted_description_emits_parseable_source():
         type=ir.ScalarType(scalar="string"),
         description='The "primary" key of the priority.',
     )
-    decl, _imports = _model_field(field, TYPE_MAPPER)
+    decl, _imports = _model_field(field, CTX)
     ast.parse(f"class M:\n{decl}\n")  # must not raise SyntaxError
     assert 'description="The \\"primary\\" key of the priority."' in decl
 
@@ -106,14 +102,14 @@ def test_model_field_required_no_description_omits_none_default():
     annotation (e.g. `str = None`). Surfaced by the synthesized `Literal[tag]` discriminator field,
     which is required and description-less."""
     field = ir.Field(name="key", type=ir.ScalarType(scalar="string"))  # required, no desc/alias
-    decl, _imports = _model_field(field, TYPE_MAPPER)
+    decl, _imports = _model_field(field, CTX)
     assert decl == "    key: str"  # NOT "    key: str = None"
 
 
 def test_model_field_with_alias_emits_field_alias():
     """`field.alias` must render `Field(alias=...)` even without a description."""
     field = ir.Field(name="type_", type=ir.ScalarType(scalar="string"), alias="type")
-    decl, _imports = _model_field(field, TYPE_MAPPER)
+    decl, _imports = _model_field(field, CTX)
     ast.parse(f"class M:\n{decl}\n")  # must not raise SyntaxError
     assert 'alias="type"' in decl
     assert "Field(" in decl
@@ -131,7 +127,7 @@ def test_resolve_models_alias_only_field_imports_pydantic_field():
     res = ir.Resource(
         domain="tracker", resource="widgets", security="oauth_token", models=(model,), operations=()
     )
-    page = resolve_models(res, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    page = resolve_models(res, CTX)
     assert any("import" in line and "Field" in line for line in page.import_lines)
 
 
@@ -141,7 +137,7 @@ def test_int64_field_wraps_annotated_before_validator():
     never co-occur on one field). A REQUIRED coerced field follows the same convention as any other
     required field: NO `= None` (coercion does not change whether a field is required)."""
     line, imports = _model_field(
-        ir.Field(name="cores", type=ir.ScalarType(scalar="integer", format="int64")), TYPE_MAPPER
+        ir.Field(name="cores", type=ir.ScalarType(scalar="integer", format="int64")), CTX
     )
     assert (
         line == "    cores: Annotated[int, BeforeValidator(coerce_int64)]"
@@ -157,7 +153,7 @@ def test_int64_optional_field_puts_none_outside_the_coercer_annotated():
     already is, it never re-derives the optional suffix itself."""
     line, _imports = _model_field(
         ir.Field(name="cores", type=ir.ScalarType(scalar="integer", format="int64"), optional=True),
-        TYPE_MAPPER,
+        CTX,
     )
     assert line == "    cores: Annotated[int, BeforeValidator(coerce_int64)] | None = None"
 
@@ -173,7 +169,7 @@ def test_resolve_models_imports_coercer_from_shared_base_module():
     res = ir.Resource(
         domain="tracker", resource="widgets", security="oauth_token", models=(model,), operations=()
     )
-    page = resolve_models(res, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    page = resolve_models(res, CTX)
     assert "from ycli.yandex.models import APIModel, coerce_int64" in page.import_lines
 
 
@@ -187,7 +183,7 @@ def test_discriminated_field_emits_single_annotated_field_call():
     """A discriminated union field renders ONE `Annotated[A | B, Field(discriminator=...)]` -
     never a bare union nor a `= Field(...)` default (pydantic requires the discriminator inside
     `Annotated[...]`)."""
-    line, imports = _model_field(ir.Field(name="block", type=_UNION), TYPE_MAPPER)
+    line, imports = _model_field(ir.Field(name="block", type=_UNION), CTX)
     assert line == '    block: Annotated[Paragraph | Heading1Block, Field(discriminator="type")]'
     assert {("typing", "Annotated"), ("pydantic", "Field")} <= {(i.module, i.name) for i in imports}
 
@@ -195,9 +191,7 @@ def test_discriminated_field_emits_single_annotated_field_call():
 def test_discriminated_field_with_description_merges_one_field_call():
     """A discriminated field with a description merges INTO the same `Field(...)` call - never
     two nested `Field(...)` calls on one annotation."""
-    line, _imports = _model_field(
-        ir.Field(name="block", type=_UNION, description="A block."), TYPE_MAPPER
-    )
+    line, _imports = _model_field(ir.Field(name="block", type=_UNION, description="A block."), CTX)
     assert line == (
         "    block: Annotated[Paragraph | Heading1Block, "
         'Field(discriminator="type", description="A block.")]'
@@ -213,7 +207,7 @@ def test_discriminated_optional_field_carries_default_none():
     ``_model_field`` wraps it), unlike the coercer optional case where `` | None`` is stripped and
     re-applied OUTSIDE. The pydantic omittable/discriminates behavior is proven in
     tests/behavioral/test_discriminator_synthesis.py."""
-    line, _imports = _model_field(ir.Field(name="block", type=_UNION, optional=True), TYPE_MAPPER)
+    line, _imports = _model_field(ir.Field(name="block", type=_UNION, optional=True), CTX)
     assert line == (
         "    block: Annotated[Paragraph | Heading1Block | None, "
         'Field(discriminator="type", default=None)]'
@@ -255,7 +249,7 @@ def test_request_function_query_param_uses_alias_as_wire_key():
         ),
         response_model="Widget",
     )
-    text, _imports = _request_function(op, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    text, _imports = _request_function(op, CTX)
     assert 'query={"pageToken": page_token}' in text  # wire KEY is the alias, VALUE the Python name
 
 
@@ -263,7 +257,7 @@ def test_request_function_guards_shadowed_path_and_query_identifiers():
     """A path param `id` / query param `type` shadow builtins: the emitted Python IDENTIFIERS are
     suffixed (`id_`, `type_`), the path f-string references the guarded var, and the query dict
     KEY stays the wire name (`type`) while its VALUE is the guarded identifier."""
-    text, _imports = _request_function(_shadowed_op(), NAMING, TYPE_MAPPER, DOCSTRINGS)
+    text, _imports = _request_function(_shadowed_op(), CTX)
     ast.parse(text)  # a bare `def fetch(id: str, ...)` would need no parse-guard, but `class` would
     assert "def fetch(id_: str, *, type_: str | None = None)" in text  # guarded identifiers
     assert 'path=f"widget/{id_}"' in text  # path references the guarded var; the URL is unchanged
@@ -280,7 +274,7 @@ def test_request_function_guards_keyword_path_param():
         params=(ir.Param(name="class", loc="path", type=_STRING),),
         response_model="Node",
     )
-    text, _imports = _request_function(op, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    text, _imports = _request_function(op, CTX)
     ast.parse(text)  # `def fetch(class: str)` would raise SyntaxError here
     assert "def fetch(class_: str)" in text
     assert 'path=f"node/{class_}"' in text
@@ -288,7 +282,7 @@ def test_request_function_guards_keyword_path_param():
 
 def test_client_method_guards_shadowed_identifiers():
     """The client sugar method mirrors the guard: guarded signature + guarded builder call."""
-    text, _imports = _client_method(_shadowed_op(), NAMING, TYPE_MAPPER, DOCSTRINGS)
+    text, _imports = _client_method(_shadowed_op(), CTX)
     ast.parse(f"class C:\n{text}")  # method text is indented one level to sit inside the class
     assert "def fetch(self, id_: str, *, type_: str | None = None)" in text
     assert "_requests.fetch(id_, type_=type_)" in text  # positional path + keyword query, guarded
@@ -309,7 +303,7 @@ def test_mcp_tool_guards_shadowed_identifiers():
     res = ir.Resource(
         domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
     )
-    text, _imports = _mcp_tool(res, op, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    text, _imports = _mcp_tool(res, op, CTX)
     ast.parse(text)
     assert "id_: str" in text
     assert "type_: str | None = None" in text
@@ -319,20 +313,20 @@ def test_mcp_tool_guards_shadowed_identifiers():
 def test_cli_command_raises_without_cli_facet(me_resource):
     op = me_resource.operations[0].model_copy(update={"cli": None})
     with pytest.raises(ValueError, match="no cli facet"):
-        _cli_command(me_resource, op, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+        _cli_command(me_resource, op, CTX)
 
 
 def test_mcp_tool_raises_without_mcp_facet(me_resource):
     op = me_resource.operations[0].model_copy(update={"mcp": None})
     with pytest.raises(ValueError, match="no mcp facet"):
-        _mcp_tool(me_resource, op, NAMING, TYPE_MAPPER, DOCSTRINGS)
+        _mcp_tool(me_resource, op, CTX)
 
 
 def test_resolve_mcp_skips_operations_without_mcp_facet(me_resource):
     bare = me_resource.operations[0].model_copy(update={"name": "bare", "mcp": None})
     res = me_resource.model_copy(update={"operations": (*me_resource.operations, bare)})
-    ctx = EmitContext(package_root="ycli.yandex.tracker")
-    page = resolve_mcp(res, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    ctx = BACKEND.context("ycli.yandex.tracker")
+    page = resolve_mcp(res, ctx)
     # one real mcp-faceted op -> one tool; the bare (mcp=None) op contributes nothing
     assert len(page.tools) == 1
 
@@ -356,8 +350,8 @@ def test_resolve_mcp_omits_response_model_import_when_none():
     res = ir.Resource(
         domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
     )
-    ctx = EmitContext(package_root="ycli.yandex.tracker")
-    page = resolve_mcp(res, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    ctx = BACKEND.context("ycli.yandex.tracker")
+    page = resolve_mcp(res, ctx)
     assert "-> None:" in page.tools[0]
     assert not any("widgets.models" in line for line in page.import_lines)
 
@@ -516,13 +510,11 @@ def test_resolve_tests_cli_only_op_drops_client_surface():
     res = ir.Resource(
         domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
     )
-    ctx = EmitContext(
-        package_root="ycli.yandex.tracker",
-        config=ir.ClientConfig(
-            name="tracker", server=ir.Server(base_url="https://api.example"), auth=()
-        ),
+    ctx = BACKEND.context(
+        "ycli.yandex.tracker",
+        ir.ClientConfig(name="tracker", server=ir.Server(base_url="https://api.example"), auth=()),
     )
-    page = resolve_tests(res, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    page = resolve_tests(res, ctx)
     assert page.doc_block == ('"""Tracker /widgets resource - CLI, HTTP stubbed."""',)
     assert page.import_lines == (
         "import json",
@@ -566,21 +558,19 @@ def test_resolve_tests_guard_only_op_emits_no_payload():
     res = ir.Resource(
         domain="tracker", resource="widgets", security="oauth_token", models=(), operations=(op,)
     )
-    ctx = EmitContext(
-        package_root="ycli.yandex.tracker",
-        config=ir.ClientConfig(
-            name="tracker", server=ir.Server(base_url="https://api.example"), auth=()
-        ),
+    ctx = BACKEND.context(
+        "ycli.yandex.tracker",
+        ir.ClientConfig(name="tracker", server=ir.Server(base_url="https://api.example"), auth=()),
     )
-    page = resolve_tests(res, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    page = resolve_tests(res, ctx)
     assert not any(constant.startswith("_PAYLOAD_") for constant in page.constants)
     assert '_URL_delete = "https://api.example/widgets/x"' in page.constants
 
 
 def test_resolve_tests_raises_without_client_config(me_resource):
-    ctx = EmitContext(package_root="ycli.yandex.tracker", config=None)
+    ctx = BACKEND.context("ycli.yandex.tracker")
     with pytest.raises(ValueError, match="requires ClientConfig"):
-        resolve_tests(me_resource, ctx, NAMING, TYPE_MAPPER, DOCSTRINGS)
+        resolve_tests(me_resource, ctx)
 
 
 def test_cli_test_raises_without_cli_facet(me_resource):
@@ -629,16 +619,16 @@ def test_select_scheme_continues_past_non_matching_entries():
 
 
 def test_resolve_root_client_raises_without_client_config(me_resource):
-    ctx = EmitContext(package_root="ycli.yandex.tracker", config=None)
+    ctx = BACKEND.context("ycli.yandex.tracker")
     with pytest.raises(ValueError, match="requires ClientConfig"):
-        resolve_root_client((me_resource,), ctx, NAMING, DOCSTRINGS)
+        resolve_root_client((me_resource,), ctx)
 
 
 def test_resolve_root_client_renders_single_header_auth(me_resource):
     """A HeaderAuth (single-header) scheme, not just MultiHeaderAuth, must resolve correctly."""
-    ctx = EmitContext(
-        package_root="ycli.yandex.tracker",
-        config=ir.ClientConfig(
+    ctx = BACKEND.context(
+        "ycli.yandex.tracker",
+        ir.ClientConfig(
             name="tracker",
             server=ir.Server(base_url="https://api.tracker.yandex.net/v3"),
             auth=(
@@ -653,7 +643,7 @@ def test_resolve_root_client_renders_single_header_auth(me_resource):
             ),
         ),
     )
-    page = resolve_root_client((me_resource,), ctx, NAMING, DOCSTRINGS)
+    page = resolve_root_client((me_resource,), ctx)
     init_method = page.methods[0]
     assert 'auth = HeaderAuth("Authorization", f"Bearer {token}")' in init_method
     assert "from .runtime.auth import HeaderAuth" in page.import_lines

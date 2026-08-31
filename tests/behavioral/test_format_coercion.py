@@ -13,13 +13,10 @@ import sys
 
 import pytest
 
-from refract.emitters.ports import EmitContext
-from refract.emitters.python.doc_comments import PythonDocComments
+from refract.emitters.python.backend import python_backend
 from refract.emitters.python.format import RuffFormatter
-from refract.emitters.python.naming import PythonNaming
 from refract.emitters.python.surfaces.models import ModelsSurface
 from refract.emitters.python.templating import make_template_environment
-from refract.emitters.python.types import PythonTypeMapper
 from refract.spec.loader import SpecLoader
 
 pytestmark = pytest.mark.behavioral
@@ -54,9 +51,9 @@ def _write_models_module(tmp_path):
     resource_yaml.write_text(_RESOURCE_YAML, encoding="utf-8")
     res = SpecLoader.load(resource_yaml)
 
-    parts = (PythonNaming(), PythonTypeMapper(), PythonDocComments(), make_template_environment())
-    ctx = EmitContext(package_root="widgetpkg.demo")
-    source = RuffFormatter().format(ModelsSurface(*parts).emit(res, ctx))
+    env = make_template_environment()
+    ctx = python_backend().context("widgetpkg.demo")
+    source = RuffFormatter().format(ModelsSurface(env).emit(res, ctx))
 
     pkg = tmp_path / "widgetpkg"
     (pkg / "demo").mkdir(parents=True)

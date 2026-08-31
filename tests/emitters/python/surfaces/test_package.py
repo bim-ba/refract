@@ -1,7 +1,7 @@
-from refract.emitters.ports import EmitContext
+from refract.emitters.python.backend import python_backend
 from refract.emitters.python.surfaces.package import PackageSurface
 
-CTX = EmitContext(package_root="ycli.yandex.tracker")
+CTX = python_backend().context("ycli.yandex.tracker")
 
 
 def test_me_package_is_the_resource_docstring(me_resource):

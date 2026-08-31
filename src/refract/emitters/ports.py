@@ -29,16 +29,6 @@ class RenderedType:
     coercer: str | None = None  # name of a hand-written `BeforeValidator` callable, if formatted
 
 
-@dataclass(frozen=True)
-class EmitContext:
-    """Per-generation config beyond the resource itself."""
-
-    package_root: str  # where runtime/base/models live, e.g. "ycli.yandex.tracker"
-    config: ir.ClientConfig | None = None  # per-API glue; only tests (base_url) + root_client
-    # read it; per-resource surfaces (requests/client/models/cli/mcp/package) ignore it, hence
-    # the None default.
-
-
 # ---- 5 injected strategies (ABCs) ----
 
 
@@ -79,6 +69,28 @@ class DocComments(ABC):
 class FileLayout(ABC):
     @abstractmethod
     def path(self, res: ir.Resource, surface: str) -> str: ...
+
+
+# ---- per-generation context ----
+
+
+@dataclass(frozen=True)
+class EmitContext:
+    """Everything a resolver reads beyond the resource itself: the target package, the per-API
+    glue config, and the three strategies the resolvers call.
+
+    The strategies ride here rather than through every resolver signature: a resolver that needs
+    none takes the same one argument as a resolver that needs all three, so adding a strategy call
+    to a leaf helper is a local edit instead of a threading change up its whole call chain. The
+    backend still OWNS them (`LanguageBackend`); `Generator` copies them onto the context it builds
+    per resource/domain, so a backend is still composed exactly once, at the composition root.
+    """
+
+    package_root: str  # where runtime/base/models live, e.g. "ycli.yandex.tracker"
+    config: ir.ClientConfig | None  # per-API glue; only tests (base_url) + root_client read it
+    naming: Naming
+    type_mapper: TypeMapper
+    doc_comments: DocComments
 
 
 # ---- renderer / assembler / surface / backend ----
@@ -130,3 +142,17 @@ class LanguageBackend:
     file_layout: FileLayout
     surfaces: tuple[SurfaceEmitter, ...]  # per-resource
     domain_surfaces: tuple[DomainEmitter, ...] = ()  # per-API glue (root_client)
+
+    def context(self, package_root: str, config: ir.ClientConfig | None = None) -> EmitContext:
+        """The `EmitContext` a resolver of THIS backend reads: the caller's per-generation values
+        plus this backend's own three strategies.
+
+        The single place a context is built, so a resolver can never be handed one backend's
+        strategies while emitting through another's templates."""
+        return EmitContext(
+            package_root=package_root,
+            config=config,
+            naming=self.naming,
+            type_mapper=self.type_mapper,
+            doc_comments=self.doc_comments,
+        )

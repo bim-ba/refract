@@ -23,27 +23,23 @@ from refract.emitters.registry import backend
 def python_backend() -> LanguageBackend:
     """Compose the Python backend: 5 injected strategies + 7 per-resource surfaces + root_client/
     shared_models domain glue."""
-    naming = PythonNaming()
-    type_mapper = PythonTypeMapper()
-    doc_comments = PythonDocComments()
     env = make_template_environment()
-    parts = (naming, type_mapper, doc_comments, env)
     surfaces = (
         PackageSurface(),
-        ModelsSurface(*parts),
-        RequestsSurface(*parts),
-        ClientSurface(*parts),
-        CliSurface(*parts),
-        McpSurface(*parts),
-        TestsSurface(*parts),
+        ModelsSurface(env),
+        RequestsSurface(env),
+        ClientSurface(env),
+        CliSurface(env),
+        McpSurface(env),
+        TestsSurface(env),
     )
     return LanguageBackend(
         name="python",
-        naming=naming,
-        type_mapper=type_mapper,
+        naming=PythonNaming(),
+        type_mapper=PythonTypeMapper(),
         formatter=RuffFormatter(),
-        doc_comments=doc_comments,
+        doc_comments=PythonDocComments(),
         file_layout=PythonFileLayout(),
         surfaces=surfaces,
-        domain_surfaces=(RootClientSurface(*parts), SharedModelsSurface(*parts)),
+        domain_surfaces=(RootClientSurface(env), SharedModelsSurface(env)),
     )

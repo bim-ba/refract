@@ -9,7 +9,6 @@ if TYPE_CHECKING:
     from jinja2 import Environment
 
     from refract import ir
-    from refract.emitters.ports import DocComments, Naming, TypeMapper
 
 
 class RootClientSurface(DomainEmitter):
@@ -17,16 +16,9 @@ class RootClientSurface(DomainEmitter):
 
     name = "root_client"
 
-    def __init__(
-        self, naming: Naming, type_mapper: TypeMapper, doc_comments: DocComments, env: Environment
-    ) -> None:
-        self._naming, self._type_mapper, self._doc_comments, self._env = (
-            naming,
-            type_mapper,
-            doc_comments,
-            env,
-        )
+    def __init__(self, env: Environment) -> None:
+        self._env = env
 
     def emit(self, resources: tuple[ir.Resource, ...], ctx: EmitContext) -> str:
-        page = resolve_root_client(resources, ctx, self._naming, self._doc_comments)
+        page = resolve_root_client(resources, ctx)
         return self._env.get_template("root_client.jinja").render(page=page)

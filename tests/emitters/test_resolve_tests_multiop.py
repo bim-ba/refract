@@ -12,11 +12,8 @@ import re
 import pytest
 
 from refract import ir
-from refract.emitters.ports import EmitContext
-from refract.emitters.python.doc_comments import PythonDocComments
-from refract.emitters.python.naming import PythonNaming
+from refract.emitters.python.backend import python_backend
 from refract.emitters.python.resolve.tests import resolve_tests
-from refract.emitters.python.types import PythonTypeMapper
 
 
 def _client_case(op_name: str) -> ir.TestCase:
@@ -55,10 +52,10 @@ def two_op_tested_resource() -> ir.Resource:
 
 
 @pytest.fixture
-def ctx() -> EmitContext:
-    return EmitContext(
-        package_root="ycli.widget.widgets",
-        config=ir.ClientConfig(
+def ctx():
+    return python_backend().context(
+        "ycli.widget.widgets",
+        ir.ClientConfig(
             name="widget",
             server=ir.Server(base_url="https://api.widget.example"),
             auth=(),
@@ -66,12 +63,7 @@ def ctx() -> EmitContext:
     )
 
 
-@pytest.fixture
-def parts() -> tuple[PythonNaming, PythonTypeMapper, PythonDocComments]:
-    return PythonNaming(), PythonTypeMapper(), PythonDocComments()
-
-
-def test_resolve_tests_client_op_without_response_model_omits_none_import(ctx, parts):
+def test_resolve_tests_client_op_without_response_model_omits_none_import(ctx):
     """V4 (coverage): a CLIENT-tested op with NO response_model (e.g. a 204) must NOT emit
     `Import(module, None)` -> `from module import None`. Every client-tested corpus op carried a
     response model, so resolve/tests' `op.response_model` truthiness guard was never driven."""
@@ -96,12 +88,12 @@ def test_resolve_tests_client_op_without_response_model_omits_none_import(ctx, p
     res = ir.Resource(
         domain="widget", resource="widgets", security="token", models=(), operations=(op,)
     )
-    page = resolve_tests(res, ctx, *parts)
+    page = resolve_tests(res, ctx)
     assert "import None" not in "\n".join(page.import_lines)
 
 
-def test_resolve_tests_renders_all_tests_bearing_ops(two_op_tested_resource, ctx, parts):
-    page = resolve_tests(two_op_tested_resource, ctx, *parts)
+def test_resolve_tests_renders_all_tests_bearing_ops(two_op_tested_resource, ctx):
+    page = resolve_tests(two_op_tested_resource, ctx)
     names = list(page.tests)
     assert any("test_first" in t for t in names)
     assert any("test_second" in t for t in names)
@@ -157,15 +149,13 @@ def write_op_resource() -> ir.Resource:
     )
 
 
-def test_resolve_tests_client_write_op_imports_body_and_nested_ref_models(
-    write_op_resource, ctx, parts
-):
+def test_resolve_tests_client_write_op_imports_body_and_nested_ref_models(write_op_resource, ctx):
     """A CLIENT-kind test on a write op must import the body model (`op.body.model`) AND any
     directly-nested `ref<...>` field of that body model - both classes appear literally in the
     authored `call` string, so both need a `from ...models import ...` line or the generated test
     module is invalid Python (NameError at import/run time).
     """
-    page = resolve_tests(write_op_resource, ctx, *parts)
+    page = resolve_tests(write_op_resource, ctx)
     # ctx.package_root ("ycli.widget.widgets") + res.resource ("widgets") - matches the shared
     # `ctx` fixture above, which already ends in the resource segment. `Widget` (the response
     # model) shares the same module, so it merges into the same grouped import line.
@@ -210,12 +200,12 @@ def cli_only_resource() -> ir.Resource:
     )
 
 
-def test_resolve_tests_cli_only_op_defines_referenced_payload(cli_only_resource, ctx, parts):
+def test_resolve_tests_cli_only_op_defines_referenced_payload(cli_only_resource, ctx):
     """C1 regression: every `_PAYLOAD_<op>` a test body references must be defined as a module
     constant. A cli-only (no CLIENT-case) op still stubs via `_PAYLOAD_get`, so the constant
     must be emitted; the pre-fix emitter gated it on `TestKind.CLIENT` and left it undefined.
     """
-    page = resolve_tests(cli_only_resource, ctx, *parts)
+    page = resolve_tests(cli_only_resource, ctx)
     defined = set(re.findall(r"^(_PAYLOAD_\w+) =", "\n".join(page.constants), re.MULTILINE))
     referenced = set(re.findall(r"_PAYLOAD_\w+", "\n".join(page.tests)))
     assert referenced <= defined, f"undefined payload constants: {referenced - defined}"

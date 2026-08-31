@@ -11,19 +11,15 @@ from __future__ import annotations
 import pytest
 
 from refract import ir
-from refract.emitters.ports import EmitContext
-from refract.emitters.python.doc_comments import PythonDocComments
-from refract.emitters.python.naming import PythonNaming
+from refract.emitters.python.backend import python_backend
 from refract.emitters.python.resolve.tests import resolve_tests
-from refract.emitters.python.types import PythonTypeMapper
 
-CTX = EmitContext(
-    package_root="ycli.widget.widgets",
-    config=ir.ClientConfig(
+CTX = python_backend().context(
+    "ycli.widget.widgets",
+    ir.ClientConfig(
         name="widget", server=ir.Server(base_url="https://api.widget.example"), auth=()
     ),
 )
-PARTS = (PythonNaming(), PythonTypeMapper(), PythonDocComments())
 
 
 def _resource(op: ir.Operation) -> ir.Resource:
@@ -61,7 +57,7 @@ def _op(path: str, param_names: tuple[str, ...], path_args: tuple[tuple[str, str
 def test_shadowed_path_param_value_reaches_the_mock_url():
     """``{id}`` binds the guarded identifier ``id_`` in the client's f-string; the mocked URL
     must still carry the VALUE, not either spelling of the name."""
-    page = resolve_tests(_resource(_op("widgets/{id}", ("id",), (("id", "W-1"),))), CTX, *PARTS)
+    page = resolve_tests(_resource(_op("widgets/{id}", ("id",), (("id", "W-1"),))), CTX)
     assert '_URL_get = "https://api.widget.example/widgets/W-1"' in page.constants
 
 
@@ -71,13 +67,13 @@ def test_several_placeholders_substitute_independently():
         ("widget_id", "part_id"),
         (("widget_id", "W-1"), ("part_id", "7")),
     )
-    page = resolve_tests(_resource(op), CTX, *PARTS)
+    page = resolve_tests(_resource(op), CTX)
     assert '_URL_get = "https://api.widget.example/widgets/W-1/parts/7"' in page.constants
 
 
 def test_placeholderless_path_is_unchanged():
     """Regression control: the corpus shape (no placeholder, no args) renders as before."""
-    page = resolve_tests(_resource(_op("widgets", (), ())), CTX, *PARTS)
+    page = resolve_tests(_resource(_op("widgets", (), ())), CTX)
     assert '_URL_get = "https://api.widget.example/widgets"' in page.constants
 
 
@@ -86,4 +82,4 @@ def test_missing_path_arg_fails_loud():
     emit a brace-bearing URL either."""
     op = _op("widgets/{widget_id}", ("widget_id",), ())
     with pytest.raises(ValueError, match=r"test 'get_client'.*no value for path param 'widget_id'"):
-        resolve_tests(_resource(op), CTX, *PARTS)
+        resolve_tests(_resource(op), CTX)

@@ -11,6 +11,7 @@ from refract.emitters.ports import (
     RenderedType,
     SurfaceEmitter,
 )
+from refract.emitters.python.backend import python_backend
 
 
 def _config() -> ir.ClientConfig:
@@ -25,6 +26,12 @@ def _resource() -> ir.Resource:
     )
 
 
+def _ctx() -> EmitContext:
+    """A context built the one sanctioned way - off a backend, so it carries that backend's own
+    strategies (`LanguageBackend.context`)."""
+    return python_backend().context("ycli.yandex.tracker", _config())
+
+
 def test_value_objects_are_frozen():
     rt = RenderedType(text="x")
     with pytest.raises(dataclasses.FrozenInstanceError):
@@ -35,11 +42,24 @@ def test_rendered_type_defaults_empty_imports():
     assert RenderedType(text="int").imports == ()
 
 
-def test_emit_context_carries_package_root_and_config():
-    ctx = EmitContext(package_root="ycli.yandex.tracker", config=_config())
+def test_backend_context_carries_package_root_config_and_strategies():
+    """`LanguageBackend.context` is the ONE constructor: it pairs the caller's per-generation
+    values with the backend's own strategies, so a resolver can never read a strategy from a
+    backend other than the one whose templates render its page."""
+    backend = python_backend()
+    ctx = backend.context("ycli.yandex.tracker", _config())
     assert ctx.package_root == "ycli.yandex.tracker"
     assert ctx.config is not None  # narrow ClientConfig | None before attribute access
     assert ctx.config.server.base_url == "https://api.tracker.yandex.net/v3"
+    assert ctx.naming is backend.naming
+    assert ctx.type_mapper is backend.type_mapper
+    assert ctx.doc_comments is backend.doc_comments
+
+
+def test_backend_context_defaults_config_to_none():
+    """A per-resource surface (requests/client/models/cli/mcp/package) never reads `config`, so
+    the argument is optional - only tests (base_url) and root_client require it."""
+    assert python_backend().context("ycli.yandex.tracker").config is None
 
 
 def test_strategy_abcs_cannot_be_instantiated():
@@ -60,7 +80,7 @@ def test_surface_emitter_is_per_resource():
 
     surface = _Requests()
     res = _resource()
-    ctx = EmitContext(package_root="ycli.yandex.tracker", config=_config())
+    ctx = _ctx()
     assert surface.applies(res) is False  # no operations -> gated off
     assert surface.emit(res, ctx) == "# myself @ ycli.yandex.tracker"
 
@@ -74,7 +94,7 @@ def test_domain_emitter_runs_once_over_all_resources():
             return f"# {ctx.config.name}: {len(resources)}"
 
     root = _RootClient()
-    ctx = EmitContext(package_root="ycli.yandex.tracker", config=_config())
+    ctx = _ctx()
     assert root.emit((_resource(),), ctx) == "# tracker: 1"
 
 

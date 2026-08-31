@@ -14,7 +14,7 @@ from refract.ir import Safety
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.ports import DocComments, EmitContext, Naming, TypeMapper
+    from refract.emitters.ports import EmitContext
 
 
 def _tags_symbol(safety: Safety) -> str:
@@ -23,34 +23,28 @@ def _tags_symbol(safety: Safety) -> str:
 
 
 def _mcp_signature(
-    res: ir.Resource, op: ir.Operation, naming: Naming, type_mapper: TypeMapper
+    res: ir.Resource, op: ir.Operation, ctx: EmitContext
 ) -> tuple[list[str], list[Import]]:
     """Tool-function parameters in order: path, typed ``body``, query, then the DI client.
 
     Path/query go through ``param_decl`` (TypeMapper). Parameters stay flat (not keyword-only):
     fastmcp reads them as ordinary arguments."""
-    positional, keyword_only, _call_args, imports = signature_and_call(op, type_mapper, naming)
+    positional, keyword_only, _call_args, imports = signature_and_call(op, ctx)
     parameters = [
         *positional,
         *keyword_only,
-        f"client: {naming.class_name(res.domain, 'Client')} = Depends({res.domain}_client)",
+        f"client: {ctx.naming.class_name(res.domain, 'Client')} = Depends({res.domain}_client)",
     ]
     return parameters, list(imports)
 
 
-def _mcp_call_args(op: ir.Operation, type_mapper: TypeMapper, naming: Naming) -> str:
+def _mcp_call_args(op: ir.Operation, ctx: EmitContext) -> str:
     """Arguments forwarded to the client call: path, ``body``, then keyword query."""
-    _positional, _keyword_only, call_args, _imports = signature_and_call(op, type_mapper, naming)
+    _positional, _keyword_only, call_args, _imports = signature_and_call(op, ctx)
     return ", ".join(call_args)
 
 
-def _mcp_tool(
-    res: ir.Resource,
-    op: ir.Operation,
-    naming: Naming,
-    type_mapper: TypeMapper,
-    doc_comments: DocComments,
-) -> tuple[str, list[Import]]:
+def _mcp_tool(res: ir.Resource, op: ir.Operation, ctx: EmitContext) -> tuple[str, list[Import]]:
     """The finished text for one ``@mcp.tool`` function, forwarding into the client (with a
     guard when ``require_found`` is declared).
 
@@ -65,12 +59,12 @@ def _mcp_tool(
         f"@mcp.tool(name={py_str(meta.name)}, annotations={annotations}, "
         f"tags={_tags_symbol(meta.safety)})"
     )
-    parameters, imports = _mcp_signature(res, op, naming, type_mapper)
+    parameters, imports = _mcp_signature(res, op, ctx)
     signature = (
-        f"def {naming.module_function(op.name)}({', '.join(parameters)}) "
+        f"def {ctx.naming.module_function(op.name)}({', '.join(parameters)}) "
         f"-> {op.response_model or 'None'}:"
     )
-    call = f"client.{res.resource}.{op.name}({_mcp_call_args(op, type_mapper, naming)})"
+    call = f"client.{res.resource}.{op.name}({_mcp_call_args(op, ctx)})"
     guard = meta.require_found
     if guard is None:
         body = [f"    return {call}"]
@@ -81,17 +75,11 @@ def _mcp_tool(
             f"result, sentinel=lambda r: {guard.sentinel}, "
             f"message={py_str(guard.message)})",
         ]
-    lines = [decorator, signature, *doc_comments.render(meta.documentation, "    "), *body]
+    lines = [decorator, signature, *ctx.doc_comments.render(meta.documentation, "    "), *body]
     return "\n".join(lines), imports
 
 
-def resolve_mcp(
-    res: ir.Resource,
-    ctx: EmitContext,
-    naming: Naming,
-    type_mapper: TypeMapper,
-    doc_comments: DocComments,
-) -> McpPageView:
+def resolve_mcp(res: ir.Resource, ctx: EmitContext) -> McpPageView:
     """IR -> McpPageView: module docstring, imports (fastmcp + package_root-domain modules +
     those collected from types), ``mcp = FastMCP(...)`` plus the finished tools. Iterates only
     the operations carrying an mcp facet. ``meta.safety.value`` is the raw safety-symbol name
@@ -101,7 +89,7 @@ def resolve_mcp(
     imports: list[Import] = [
         Import("fastmcp", "FastMCP"),
         Import("fastmcp.dependencies", "Depends"),
-        Import(f"{ctx.package_root}.client", naming.class_name(res.domain, "Client")),
+        Import(f"{ctx.package_root}.client", ctx.naming.class_name(res.domain, "Client")),
         Import(dependencies_module, f"{res.domain}_client"),
     ]
     tools: list[str] = []
@@ -117,11 +105,11 @@ def resolve_mcp(
             imports.append(Import(models_module, op.body.model))
         if meta.require_found is not None:
             imports.append(Import(_shared_models_module(ctx), "require_found"))
-        text, tool_imports = _mcp_tool(res, op, naming, type_mapper, doc_comments)
+        text, tool_imports = _mcp_tool(res, op, ctx)
         tools.append(text)
         imports += tool_imports
     return McpPageView(
-        doc_block=doc_comments.render(res.module_docs.mcp, ""),
+        doc_block=ctx.doc_comments.render(res.module_docs.mcp, ""),
         import_lines=render_imports(tuple(imports)),
         server_line=f'mcp = FastMCP("{res.module_docs.mcp_server}")',
         tools=tuple(tools),

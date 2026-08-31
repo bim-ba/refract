@@ -15,7 +15,7 @@ from refract.ir import ObjectModel, TestKind
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.ports import DocComments, EmitContext, Naming, TypeMapper
+    from refract.emitters.ports import EmitContext
 
 # Docstring for the require_found empty-response guard (structural - only the 200-empty case,
 # tied to the sentinel ``r.login is None`` declared by the read-tool).
@@ -121,7 +121,7 @@ def _tests_imports(
     return (*stdlib, *third_party, *first_party)
 
 
-def _mock_url(op: ir.Operation, case: ir.TestCase, base_url: str, naming: Naming) -> str:
+def _mock_url(op: ir.Operation, case: ir.TestCase, base_url: str, ctx: EmitContext) -> str:
     """The URL this case stubs: ``base_url`` + the op path with its placeholders SUBSTITUTED.
 
     Mirrors what the generated client sends. The client's request builder wraps
@@ -140,12 +140,12 @@ def _mock_url(op: ir.Operation, case: ir.TestCase, base_url: str, naming: Naming
             f"{op.name}: test {case.name!r} provides no value for path param "
             f"{', '.join(repr(name) for name in missing)}"
         )
-    values = {naming.safe_param(name): value for name, value in case.path_args}
-    return f"{base_url}/{path_template(op.path, op.params, naming).format(**values)}"
+    values = {ctx.naming.safe_param(name): value for name, value in case.path_args}
+    return f"{base_url}/{path_template(op.path, op.params, ctx).format(**values)}"
 
 
 def _tests_constants(
-    res: ir.Resource, op: ir.Operation, ctx: EmitContext, kinds: set[TestKind], naming: Naming
+    res: ir.Resource, op: ir.Operation, ctx: EmitContext, kinds: set[TestKind]
 ) -> tuple[str, ...]:
     """Module constants: ``_URL_<op.name>`` (always), ``_PAYLOAD_<op.name>`` (client case),
     ``_runner`` (cli case, shared - not op-suffixed; harmlessly re-assigned to the same value if
@@ -161,7 +161,7 @@ def _tests_constants(
     the loader rejects an operation whose cases disagree on ``path_args``."""
     if ctx.config is None:
         raise ValueError("tests surface requires ClientConfig (base_url)")
-    url = _mock_url(op, op.tests[0], ctx.config.server.base_url, naming)
+    url = _mock_url(op, op.tests[0], ctx.config.server.base_url, ctx)
     lines = [f"_URL_{op.name} = {py_str(url)}"]
     # `_stub` references `_PAYLOAD_<op>` for EVERY non-guard case (client/cli/mcp) - only the
     # MCP_GUARD case inlines its own `{}`. So the payload constant must exist whenever any
@@ -276,29 +276,22 @@ def _test_block(res: ir.Resource, op: ir.Operation, case: ir.TestCase) -> str:
             assert_never(case.kind)
 
 
-def resolve_tests(
-    res: ir.Resource,
-    ctx: EmitContext,
-    naming: Naming,
-    type_mapper: TypeMapper,
-    doc_comments: DocComments,
-) -> TestsPageView:
+def resolve_tests(res: ir.Resource, ctx: EmitContext) -> TestsPageView:
     """IR -> TestsPageView. Iterates ALL tests-bearing operations (not just the first), unions
     their ``kinds`` (a set of ``TestKind``) to gate imports/module-doc, and renders one leaf per
     case across every such op. Constants are collected per op - ``_tests_constants`` always
     suffixes ``_URL``/``_PAYLOAD`` with ``op.name``, so only the shared, non-suffixed
-    ``_runner = CliRunner()`` line could ever repeat (harmless: re-assigning the same value).
-    ``type_mapper`` is unused here - all TestCase values are authored."""
+    ``_runner = CliRunner()`` line could ever repeat (harmless: re-assigning the same value)."""
     tested = tuple(operation for operation in res.operations if operation.tests)
     kinds = {case.kind for op in tested for case in op.tests}
-    client_class = naming.class_name(res.domain, "Client")
+    client_class = ctx.naming.class_name(res.domain, "Client")
     constants: list[str] = []
     tests: list[str] = []
     for op in tested:
-        constants.extend(_tests_constants(res, op, ctx, {case.kind for case in op.tests}, naming))
+        constants.extend(_tests_constants(res, op, ctx, {case.kind for case in op.tests}))
         tests.extend(_test_block(res, op, case) for case in op.tests)
     return TestsPageView(
-        doc_block=doc_comments.render(_tests_module_doc(res, tested, kinds), ""),
+        doc_block=ctx.doc_comments.render(_tests_module_doc(res, tested, kinds), ""),
         header_lines=("from __future__ import annotations",),
         import_lines=_tests_imports(res, tested, ctx, kinds, client_class),
         constants=tuple(constants),

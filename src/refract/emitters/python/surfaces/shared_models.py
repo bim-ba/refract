@@ -9,7 +9,6 @@ if TYPE_CHECKING:
     from jinja2 import Environment
 
     from refract import ir
-    from refract.emitters.ports import DocComments, Naming, TypeMapper
 
 
 class SharedModelsSurface(DomainEmitter):
@@ -19,15 +18,8 @@ class SharedModelsSurface(DomainEmitter):
 
     name = "shared_models"
 
-    def __init__(
-        self, naming: Naming, type_mapper: TypeMapper, doc_comments: DocComments, env: Environment
-    ) -> None:
-        self._naming, self._type_mapper, self._doc_comments, self._env = (
-            naming,
-            type_mapper,
-            doc_comments,
-            env,
-        )
+    def __init__(self, env: Environment) -> None:
+        self._env = env
 
     def applies(self, resources: tuple[ir.Resource, ...]) -> bool:
         """False when the domain has no `_models.yaml` (`shared_models` empty) - no empty
@@ -36,7 +28,5 @@ class SharedModelsSurface(DomainEmitter):
         return bool(resources[0].shared_models)
 
     def emit(self, resources: tuple[ir.Resource, ...], ctx: EmitContext) -> str:
-        page = resolve_shared_models(
-            resources, ctx, self._naming, self._type_mapper, self._doc_comments
-        )
+        page = resolve_shared_models(resources, ctx)
         return self._env.get_template("models.jinja").render(page=page)
