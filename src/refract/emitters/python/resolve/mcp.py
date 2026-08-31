@@ -23,25 +23,16 @@ def _tags_symbol(safety: Safety) -> str:
 
 
 def _mcp_signature(
-    res: ir.Resource, op: ir.Operation, ctx: EmitContext
-) -> tuple[list[str], list[Import]]:
+    res: ir.Resource, positional: tuple[str, ...], keyword_only: tuple[str, ...], ctx: EmitContext
+) -> list[str]:
     """Tool-function parameters in order: path, typed ``body``, query, then the DI client.
 
-    Path/query go through ``param_decl`` (TypeMapper). Parameters stay flat (not keyword-only):
-    fastmcp reads them as ordinary arguments."""
-    positional, keyword_only, _call_args, imports = signature_and_call(op, ctx)
-    parameters = [
+    Parameters stay flat (not keyword-only): fastmcp reads them as ordinary arguments."""
+    return [
         *positional,
         *keyword_only,
         f"client: {ctx.naming.class_name(res.domain, 'Client')} = Depends({res.domain}_client)",
     ]
-    return parameters, list(imports)
-
-
-def _mcp_call_args(op: ir.Operation, ctx: EmitContext) -> str:
-    """Arguments forwarded to the client call: path, ``body``, then keyword query."""
-    _positional, _keyword_only, call_args, _imports = signature_and_call(op, ctx)
-    return ", ".join(call_args)
 
 
 def _mcp_tool(
@@ -58,12 +49,16 @@ def _mcp_tool(
         f"@mcp.tool(name={py_str(meta.name)}, annotations={annotations}, "
         f"tags={_tags_symbol(meta.safety)})"
     )
-    parameters, imports = _mcp_signature(res, op, ctx)
+    # ONE reading of the operation's parameters: the signature and the forwarded call are two
+    # views of the same `signature_and_call` result, so they cannot drift apart.
+    positional, keyword_only, call_args, param_imports = signature_and_call(op, ctx)
+    parameters = _mcp_signature(res, positional, keyword_only, ctx)
+    imports = list(param_imports)
     signature = (
         f"def {ctx.naming.identifier(op.name)}({', '.join(parameters)}) "
         f"-> {op.response_model or 'None'}:"
     )
-    call = f"client.{res.resource}.{op.name}({_mcp_call_args(op, ctx)})"
+    call = f"client.{res.resource}.{op.name}({', '.join(call_args)})"
     guard = meta.require_found
     if guard is None:
         body = [f"    return {call}"]
