@@ -134,7 +134,7 @@ def _mock_url(op: ir.Operation, case: ir.TestCase, base_url: str, ctx: EmitConte
     ``SpecLoader`` requires a case's ``path_args`` to match the operation's declared path params
     EXACTLY, so every slot has a value by the time the IR reaches here.
     """
-    values = {ctx.naming.safe_param(name): value for name, value in case.path_args}
+    values = {ctx.naming.identifier(name): value for name, value in case.path_args}
     return f"{base_url}/{path_template(op.path, op.params, ctx).format(**values)}"
 
 

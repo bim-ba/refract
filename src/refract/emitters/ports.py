@@ -34,19 +34,15 @@ class RenderedType:
 
 class Naming(ABC):
     @abstractmethod
-    def pascal(self, name: str) -> str: ...
-    @abstractmethod
-    # module-level def-safe: list -> list_
-    def module_function(self, name: str) -> str: ...
-    @abstractmethod
-    # parameter-identifier-safe: id -> id_ (the caller preserves the wire name)
-    def safe_param(self, name: str) -> str: ...
+    # any emitted identifier - def name OR parameter - made safe: list -> list_, id -> id_ (the
+    # caller preserves the wire name)
+    def identifier(self, name: str) -> str: ...
     @abstractmethod
     # merges the 3 *_class helpers
     def class_name(self, base: str, suffix: str) -> str: ...
     @abstractmethod
-    # snake-join a flat typer option name: cli_option("name", "ru") -> "name_ru"
-    def cli_option(self, *parts: str) -> str: ...
+    # a nested option's flat name: cli_option("name", "ru") -> "name_ru"
+    def cli_option(self, parent: str, child: str) -> str: ...
 
 
 class TypeMapper(ABC):

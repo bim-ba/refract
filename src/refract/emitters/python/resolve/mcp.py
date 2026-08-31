@@ -60,7 +60,7 @@ def _mcp_tool(
     )
     parameters, imports = _mcp_signature(res, op, ctx)
     signature = (
-        f"def {ctx.naming.module_function(op.name)}({', '.join(parameters)}) "
+        f"def {ctx.naming.identifier(op.name)}({', '.join(parameters)}) "
         f"-> {op.response_model or 'None'}:"
     )
     call = f"client.{res.resource}.{op.name}({_mcp_call_args(op, ctx)})"

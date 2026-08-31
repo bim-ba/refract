@@ -85,7 +85,7 @@ def _cli_write_parts(
         decl, decl_imports = param_decl(param, ctx)
         param_imports += decl_imports
         # the guarded local identifier forwarded to the client
-        safe = ctx.naming.safe_param(param.name)
+        safe = ctx.naming.identifier(param.name)
         if param.loc == "path":
             path_decls.append(decl)
             path_names.append(safe)
@@ -265,7 +265,7 @@ def _assembled_options(
     for field in model.fields:
         match field.type:
             case ScalarType():
-                option_name = ctx.naming.safe_param(field.name)  # guarded typer option identifier
+                option_name = ctx.naming.identifier(field.name)  # guarded typer option identifier
                 decl, decl_imports = _option_decl(option_name, field, ctx)
                 option_decls.append(decl)
                 option_names.append(option_name)
@@ -277,7 +277,7 @@ def _assembled_options(
                 for child in nested.fields:
                     match child.type:
                         case ScalarType():
-                            option_name = ctx.naming.safe_param(
+                            option_name = ctx.naming.identifier(
                                 ctx.naming.cli_option(field.name, child.name)
                             )
                             decl, decl_imports = _option_decl(option_name, child, ctx)

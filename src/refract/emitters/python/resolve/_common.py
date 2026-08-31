@@ -45,7 +45,7 @@ def param_decl(param: ir.Param, ctx: EmitContext) -> tuple[str, tuple[Import, ..
         if param.default is not None
         else ctx.type_mapper.null_default(param.type, optional=param.optional)
     )
-    decl = f"{ctx.naming.safe_param(param.name)}: {rt.text}"
+    decl = f"{ctx.naming.identifier(param.name)}: {rt.text}"
     if default is not None:
         decl = f"{decl} = {default}"
     return decl, rt.imports
@@ -62,7 +62,7 @@ def path_template(path: str, params: tuple[ir.Param, ...], ctx: EmitContext) -> 
     """
     for param in params:
         if param.loc == "path":
-            safe = ctx.naming.safe_param(param.name)
+            safe = ctx.naming.identifier(param.name)
             if safe != param.name:
                 path = path.replace(f"{{{param.name}}}", f"{{{safe}}}")
     return path
@@ -98,7 +98,7 @@ def signature_and_call(
         if p.loc == "path":
             decl, imp = param_decl(p, ctx)
             positional.append(decl)
-            call_args.append(ctx.naming.safe_param(p.name))
+            call_args.append(ctx.naming.identifier(p.name))
             imports += imp
     if op.body is not None:
         positional.append(f"body: {op.body.model}")
@@ -108,7 +108,7 @@ def signature_and_call(
         if p.loc == "query":
             decl, imp = param_decl(p, ctx)
             keyword_only.append(decl)
-            call_args.append(f"{ctx.naming.safe_param(p.name)}={ctx.naming.safe_param(p.name)}")
+            call_args.append(f"{ctx.naming.identifier(p.name)}={ctx.naming.identifier(p.name)}")
             imports += imp
     return tuple(positional), tuple(keyword_only), tuple(call_args), tuple(imports)
 

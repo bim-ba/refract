@@ -114,20 +114,14 @@ def test_domain_emitter_cannot_be_instantiated():
 def test_language_backend_composes_strategies():
     # a minimal concrete stub proves the composition shape holds
     class _N(Naming):
-        def pascal(self, name):
-            return name.title()
-
-        def module_function(self, name):
-            return name
-
-        def safe_param(self, name):
+        def identifier(self, name):
             return name
 
         def class_name(self, base, suffix):
             return base + suffix
 
-        def cli_option(self, *parts):
-            return "_".join(parts)
+        def cli_option(self, parent, child):
+            return f"{parent}_{child}"
 
     n = _N()
     assert n.class_name("Me", "Client") == "MeClient"

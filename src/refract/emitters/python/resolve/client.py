@@ -35,7 +35,7 @@ def _client_method(op: ir.Operation, ctx: EmitContext) -> tuple[str, list[Import
         imports.append(Import(".models", response_model))
     return_type = response_model or "None"
     sig = f"def {op.name}({', '.join(params)}) -> {return_type}:"
-    call = f"_requests.{ctx.naming.module_function(op.name)}({', '.join(call_args)})"
+    call = f"_requests.{ctx.naming.identifier(op.name)}({', '.join(call_args)})"
     doc = ctx.doc_comments.render(op.documentation, "    ")
     body_lines = (sig, *doc, f"    return self._session.send({call})")
     return "\n".join(indent_lines(body_lines, "    ")), imports

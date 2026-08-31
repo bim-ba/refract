@@ -48,13 +48,13 @@ def _request_function(op: ir.Operation, ctx: EmitContext) -> tuple[str, list[Imp
     else:
         imports.append(Import(".models", response_model))
         return_type, response_kwarg = response_model, f"response_model={response_model}"
-    function_name = ctx.naming.module_function(op.name)
+    function_name = ctx.naming.identifier(op.name)
     param_list = ", ".join(params)
     sig = f"def {function_name}({param_list}) -> Request[{return_type}]:"
 
     kwargs = [f'method="{op.method}"', f"path={path_expr(op.path, op.params, ctx)}"]
     query_items = [
-        f'"{p.alias or p.name}": {ctx.naming.safe_param(p.name)}'
+        f'"{p.alias or p.name}": {ctx.naming.identifier(p.name)}'
         for p in op.params
         if p.loc == "query"
     ]
