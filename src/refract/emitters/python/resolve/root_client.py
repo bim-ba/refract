@@ -18,7 +18,7 @@ from refract.spec import SpecError
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.ports import DocComments, EmitContext, Naming
+    from refract.emitters.ports import EmitContext
 
 
 def _auth_value(template: str, inputs: tuple[ir.AuthInput, ...]) -> str:
@@ -54,19 +54,12 @@ def _select_scheme(config: ir.ClientConfig, security: str) -> ir.AuthScheme:
     raise SpecError(f"security {security!r} names no auth scheme in client.yaml")
 
 
-def resolve_root_client(
-    resources: tuple[ir.Resource, ...],
-    ctx: EmitContext,
-    naming: Naming,
-    doc_comments: DocComments,
-) -> RootClientPageView:
+def resolve_root_client(resources: tuple[ir.Resource, ...], ctx: EmitContext) -> RootClientPageView:
     """IR + ClientConfig -> RootClientPageView: the composition root. Runs once over ALL
     resources (per-API invariant: shared ``domain`` + ``security``, so read from ``resources[0]``).
     """
-    if ctx.config is None:
-        raise ValueError("root_client surface requires ClientConfig (server + auth)")
     domain = resources[0].domain
-    client_class = naming.class_name(domain, "Client")
+    client_class = ctx.naming.class_name(domain, "Client")
     scheme = _select_scheme(ctx.config, resources[0].security)
     match scheme:
         case MultiHeaderAuth():
@@ -84,14 +77,14 @@ def resolve_root_client(
         f"    auth = {auth_expr}",
         f'    session = Session("{ctx.config.server.base_url}", client=httpx.Client(auth=auth))',
         *(
-            f"    self.{res.resource} = {naming.class_name(res.resource, 'Client')}(session)"
+            f"    self.{res.resource} = {ctx.naming.class_name(res.resource, 'Client')}(session)"
             for res in resources
         ),
     )
     from_env_lines = (
         "@classmethod",
         f"def from_env(cls) -> {client_class}:",
-        *doc_comments.render(
+        *ctx.doc_comments.render(
             "The single sanctioned env-read point (composition root); components never read env.",
             "    ",
         ),
@@ -110,7 +103,7 @@ def resolve_root_client(
                 Import(".runtime.session", "Session"),
                 Import(".runtime.auth", mechanism),
                 *(
-                    Import(f".{res.resource}.client", naming.class_name(res.resource, "Client"))
+                    Import(f".{res.resource}.client", ctx.naming.class_name(res.resource, "Client"))
                     for res in resources
                 ),
             )
@@ -118,14 +111,14 @@ def resolve_root_client(
     )
     title = resources[0].domain_title
     return RootClientPageView(
-        doc_block=doc_comments.render(
+        doc_block=ctx.doc_comments.render(
             f"{title} client - the composition root (aggregates resources, owns transport + auth).",
             "",
         ),
         header_lines=("from __future__ import annotations",),
         import_lines=imports,
         class_header=f"class {client_class}:",
-        class_doc_lines=doc_comments.render(f"Root client for the {title} API.", "    "),
+        class_doc_lines=ctx.doc_comments.render(f"Root client for the {title} API.", "    "),
         methods=(
             "\n".join(indent_lines(init_lines, "    ")),
             "\n".join(indent_lines(from_env_lines, "    ")),

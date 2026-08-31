@@ -23,15 +23,17 @@ import sys
 import pytest
 
 from refract import ir
-from refract.emitters.ports import EmitContext
-from refract.emitters.python.doc_comments import PythonDocComments
+from refract.emitters.python.backend import python_backend
 from refract.emitters.python.format import RuffFormatter
-from refract.emitters.python.naming import PythonNaming
-from refract.emitters.python.surfaces.client import ClientSurface
-from refract.emitters.python.surfaces.requests import RequestsSurface
-from refract.emitters.python.surfaces.root_client import RootClientSurface
+from refract.emitters.python.surfaces import (
+    CLIENT_SURFACE,
+    REQUESTS_SURFACE,
+    ROOT_CLIENT_SURFACE,
+    TESTS_SURFACE,
+    TemplateDomainSurface,
+    TemplateSurface,
+)
 from refract.emitters.python.templating import make_template_environment
-from refract.emitters.python.types import PythonTypeMapper
 
 pytestmark = pytest.mark.behavioral
 
@@ -140,9 +142,9 @@ _MODULES = (
 def _write_pkg(tmp_path):
     """Generate `demopkg/{models,_requests,client}.py` + the root client, plus the runtime shims
     bridging refract's reference runtime (mirrors `test_nested_ref_test_imports.py`)."""
-    parts = (PythonNaming(), PythonTypeMapper(), PythonDocComments(), make_template_environment())
+    env = make_template_environment()
     fmt = RuffFormatter()
-    ctx = EmitContext(package_root="demopkg", config=_CONFIG)
+    ctx = python_backend().context("demopkg", _CONFIG)
 
     pkg = tmp_path / "demopkg"
     (pkg / "widgets").mkdir(parents=True)
@@ -167,29 +169,27 @@ def _write_pkg(tmp_path):
         encoding="utf-8",
     )
     (pkg / "widgets" / "_requests.py").write_text(
-        fmt.format(RequestsSurface(*parts).emit(_RESOURCE, ctx)), encoding="utf-8"
+        fmt.format(TemplateSurface(REQUESTS_SURFACE, env).emit(_RESOURCE, ctx)), encoding="utf-8"
     )
     (pkg / "widgets" / "client.py").write_text(
-        fmt.format(ClientSurface(*parts).emit(_RESOURCE, ctx)), encoding="utf-8"
+        fmt.format(TemplateSurface(CLIENT_SURFACE, env).emit(_RESOURCE, ctx)), encoding="utf-8"
     )
     (pkg / "client.py").write_text(
-        fmt.format(RootClientSurface(*parts).emit((_RESOURCE,), ctx)), encoding="utf-8"
+        fmt.format(TemplateDomainSurface(ROOT_CLIENT_SURFACE, env).emit((_RESOURCE,), ctx)),
+        encoding="utf-8",
     )
-    return pkg, ctx, parts
+    return pkg, ctx, env
 
 
 def test_generated_test_stubs_the_url_the_generated_client_requests(tmp_path, monkeypatch):
     """The issue #17 proof: the emitted `_URL_get` carries the SUBSTITUTED path, and the emitted
     test - actually invoked - reaches a request whose URL equals the one it stubbed."""
-    from refract.emitters.python.surfaces.tests import TestsSurface  # local: avoid pytest
+    from refract.emitters.python.surfaces import TemplateSurface
     # collecting `TestsSurface` as a `Test*`-named class (it has an `__init__`) - matches the
     # existing behavioral/surfaces test convention.
 
-    pkg, ctx, parts = _write_pkg(tmp_path)
-    naming, type_mapper, doc_comments, env = parts
-    source = RuffFormatter().format(
-        TestsSurface(naming, type_mapper, doc_comments, env).emit(_RESOURCE, ctx)
-    )
+    pkg, ctx, env = _write_pkg(tmp_path)
+    source = RuffFormatter().format(TemplateSurface(TESTS_SURFACE, env).emit(_RESOURCE, ctx))
 
     # (a) the mocked URL is substituted, not brace-bearing
     url_line = next(line for line in source.splitlines() if line.startswith("_URL_get"))

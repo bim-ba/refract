@@ -21,15 +21,17 @@ import sys
 import pytest
 
 from refract import ir
-from refract.emitters.ports import EmitContext
-from refract.emitters.python.doc_comments import PythonDocComments
+from refract.emitters.python.backend import python_backend
 from refract.emitters.python.format import RuffFormatter
-from refract.emitters.python.naming import PythonNaming
-from refract.emitters.python.surfaces.client import ClientSurface
-from refract.emitters.python.surfaces.requests import RequestsSurface
-from refract.emitters.python.surfaces.root_client import RootClientSurface
+from refract.emitters.python.surfaces import (
+    CLIENT_SURFACE,
+    REQUESTS_SURFACE,
+    ROOT_CLIENT_SURFACE,
+    TESTS_SURFACE,
+    TemplateDomainSurface,
+    TemplateSurface,
+)
 from refract.emitters.python.templating import make_template_environment
-from refract.emitters.python.types import PythonTypeMapper
 from refract.ir.types import ListType, RefType
 
 pytestmark = pytest.mark.behavioral
@@ -132,9 +134,9 @@ def activate(func):
 def _write_pkg(tmp_path):
     """Generate `nestedrefpkg/{models,_requests,client}.py` + root `client.py`, plus the
     `runtime`/`base` shims bridging refract's reference runtime (mirrors `test_d_core_runs.py`)."""
-    parts = (PythonNaming(), PythonTypeMapper(), PythonDocComments(), make_template_environment())
+    env = make_template_environment()
     fmt = RuffFormatter()
-    ctx = EmitContext(package_root="nestedrefpkg", config=_CONFIG)
+    ctx = python_backend().context("nestedrefpkg", _CONFIG)
 
     pkg = tmp_path / "nestedrefpkg"
     (pkg / "widgets").mkdir(parents=True)
@@ -160,15 +162,16 @@ def _write_pkg(tmp_path):
         encoding="utf-8",
     )
     (pkg / "widgets" / "_requests.py").write_text(
-        fmt.format(RequestsSurface(*parts).emit(_RESOURCE, ctx)), encoding="utf-8"
+        fmt.format(TemplateSurface(REQUESTS_SURFACE, env).emit(_RESOURCE, ctx)), encoding="utf-8"
     )
     (pkg / "widgets" / "client.py").write_text(
-        fmt.format(ClientSurface(*parts).emit(_RESOURCE, ctx)), encoding="utf-8"
+        fmt.format(TemplateSurface(CLIENT_SURFACE, env).emit(_RESOURCE, ctx)), encoding="utf-8"
     )
     (pkg / "client.py").write_text(
-        fmt.format(RootClientSurface(*parts).emit((_RESOURCE,), ctx)), encoding="utf-8"
+        fmt.format(TemplateDomainSurface(ROOT_CLIENT_SURFACE, env).emit((_RESOURCE,), ctx)),
+        encoding="utf-8",
     )
-    return pkg, ctx, parts
+    return pkg, ctx, env
 
 
 def test_generated_client_test_for_nested_list_ref_body_imports_and_runs_clean(
@@ -177,15 +180,12 @@ def test_generated_client_test_for_nested_list_ref_body_imports_and_runs_clean(
     """The core M1 proof: `_referenced_model_names` (walked through `_body_test_imports`) makes
     the generated test import BOTH `Widget` and `Item` - and the generated test, actually invoked,
     runs the authored `Widget(items=[Item(...)])` construction with no `NameError`."""
-    from refract.emitters.python.surfaces.tests import TestsSurface  # local: avoid pytest
+    from refract.emitters.python.surfaces import TemplateSurface
     # collecting `TestsSurface` as a `Test*`-named class (it has an `__init__`) - matches the
     # existing `surfaces/test_tests.py` convention.
 
-    _pkg, ctx, parts = _write_pkg(tmp_path)
-    naming, type_mapper, doc_comments, env = parts
-    source = RuffFormatter().format(
-        TestsSurface(naming, type_mapper, doc_comments, env).emit(_RESOURCE, ctx)
-    )
+    _pkg, ctx, env = _write_pkg(tmp_path)
+    source = RuffFormatter().format(TemplateSurface(TESTS_SURFACE, env).emit(_RESOURCE, ctx))
 
     # the regression this task fixes: BOTH classes constructed in the authored `call` are
     # imported - `Item` is reachable only through Widget's `list<ref<Item>>` field, never directly.

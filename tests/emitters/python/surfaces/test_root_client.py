@@ -1,12 +1,12 @@
 from refract import ir
-from refract.emitters.ports import EmitContext
+from refract.emitters.python.backend import python_backend
 
 # Root-client glue is resolved from ClientConfig: server + the auth scheme a resource's
 # `security` names. The scheme's AuthInput.name values drive the ctor params + from_env, and the
 # (header, template) pairs render the MultiHeaderAuth mechanism dict.
-CTX = EmitContext(
-    package_root="ycli.yandex.tracker",
-    config=ir.ClientConfig(
+CTX = python_backend().context(
+    "ycli.yandex.tracker",
+    ir.ClientConfig(
         name="tracker",
         server=ir.Server(base_url="https://api.tracker.yandex.net/v3"),
         auth=(
@@ -29,16 +29,11 @@ CTX = EmitContext(
 
 
 def _emit(resources):
-    from refract.emitters.python.doc_comments import PythonDocComments
     from refract.emitters.python.format import RuffFormatter
-    from refract.emitters.python.naming import PythonNaming
-    from refract.emitters.python.surfaces.root_client import RootClientSurface
+    from refract.emitters.python.surfaces import ROOT_CLIENT_SURFACE, TemplateDomainSurface
     from refract.emitters.python.templating import make_template_environment
-    from refract.emitters.python.types import PythonTypeMapper
 
-    surface = RootClientSurface(
-        PythonNaming(), PythonTypeMapper(), PythonDocComments(), make_template_environment()
-    )
+    surface = TemplateDomainSurface(ROOT_CLIENT_SURFACE, make_template_environment())
     return RuffFormatter().format(surface.emit(resources, CTX))
 
 

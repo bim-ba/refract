@@ -7,7 +7,7 @@ from typing import Annotated
 
 import typer
 
-from refract.generation import Generator, find_client_config
+from refract.generation import Generator
 from refract.spec import SpecError
 
 app = typer.Typer(name="refract", no_args_is_help=True, add_completion=False)
@@ -39,8 +39,8 @@ def generate(
     """Render every resource.yaml under --specs (+ its client.yaml glue) into --out for --lang."""
     generator = Generator.for_language(lang)
     try:
-        client_config = client or find_client_config(specs)
-        the_plan = generator.plan(specs, out, client_config)
+        # `plan` locates the per-API client.yaml under --specs when --client is not given
+        the_plan = generator.plan(specs, out, client)
     except SpecError as error:
         typer.echo(f"spec error: {error}", err=True)
         raise typer.Exit(2) from error

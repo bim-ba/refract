@@ -3,7 +3,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict
 
 
-class _View(BaseModel):
+class PageView(BaseModel):
     """Base for every view-model: frozen, and every field a resolved primitive.
 
     No ir/shape tags leak into the fields.
@@ -12,14 +12,14 @@ class _View(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
-class RequestsPageView(_View):
+class RequestsPageView(PageView):
     doc_block: tuple[str, ...] = ()
     header_lines: tuple[str, ...] = ()
     import_lines: tuple[str, ...] = ()
     functions: tuple[str, ...] = ()
 
 
-class ClientPageView(_View):
+class ClientPageView(PageView):
     doc_block: tuple[str, ...] = ()
     header_lines: tuple[str, ...] = ()
     import_lines: tuple[str, ...] = ()
@@ -28,21 +28,21 @@ class ClientPageView(_View):
     methods: tuple[str, ...] = ()
 
 
-class ModelsPageView(_View):
+class ModelsPageView(PageView):
     doc_block: tuple[str, ...] = ()
     header_lines: tuple[str, ...] = ()
     import_lines: tuple[str, ...] = ()
     classes: tuple[str, ...] = ()
 
 
-class CliPageView(_View):
+class CliPageView(PageView):
     doc_block: tuple[str, ...] = ()
     header_lines: tuple[str, ...] = ()
     import_lines: tuple[str, ...] = ()
     blocks: tuple[str, ...] = ()
 
 
-class McpPageView(_View):
+class McpPageView(PageView):
     doc_block: tuple[str, ...] = ()
     header_lines: tuple[str, ...] = ()
     import_lines: tuple[str, ...] = ()
@@ -50,7 +50,7 @@ class McpPageView(_View):
     tools: tuple[str, ...] = ()
 
 
-class TestsPageView(_View):
+class TestsPageView(PageView):
     doc_block: tuple[str, ...] = ()
     header_lines: tuple[str, ...] = ()
     import_lines: tuple[str, ...] = ()
@@ -58,7 +58,7 @@ class TestsPageView(_View):
     tests: tuple[str, ...] = ()
 
 
-class RootClientPageView(_View):
+class RootClientPageView(PageView):
     doc_block: tuple[str, ...] = ()
     header_lines: tuple[str, ...] = ()
     import_lines: tuple[str, ...] = ()

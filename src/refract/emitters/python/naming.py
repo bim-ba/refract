@@ -15,20 +15,20 @@ def _deconflict(name: str) -> str:
     return f"{name}_" if name in _SHADOWED else name
 
 
+def _pascal(name: str) -> str:
+    """``localized_name`` -> ``LocalizedName``. Private: only `class_name` reads it, so it is not
+    part of the `Naming` port a backend implements."""
+    return "".join(part.capitalize() for part in name.split("_"))
+
+
 class PythonNaming(Naming):
     """Python identifier casing + shadow-guarding + class naming."""
 
-    def pascal(self, name: str) -> str:
-        return "".join(part.capitalize() for part in name.split("_"))
-
-    def module_function(self, name: str) -> str:
-        return _deconflict(name)
-
-    def safe_param(self, name: str) -> str:
+    def identifier(self, name: str) -> str:
         return _deconflict(name)
 
     def class_name(self, base: str, suffix: str) -> str:
-        return f"{self.pascal(base)}{suffix}"
+        return f"{_pascal(base)}{suffix}"
 
-    def cli_option(self, *parts: str) -> str:
-        return "_".join(parts)
+    def cli_option(self, parent: str, child: str) -> str:
+        return f"{parent}_{child}"

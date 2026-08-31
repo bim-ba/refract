@@ -213,27 +213,24 @@ def _synthesize_discriminators(
     return tuple(result)
 
 
+# A spec node whose keys are already the IR node's keys is TRANSCRIBED, not retyped: pydantic reads
+# the attributes itself, coercing str -> StrEnum and recursing into a nested node (require_found),
+# so adding a key to both sides needs no edit here. A node the loader actually TRANSFORMS (_field,
+# _param, _model, _test, _operation, _resource) keeps its explicit construction below.
 def _body(spec: schema.BodySpec | None) -> ir.Body | None:
-    """by_alias/omit_none take their True/True IR defaults; the spec has no key to override them."""
-    return None if spec is None else ir.Body(model=spec.model)
-
-
-def _require_found(spec: schema.RequireFoundSpec | None) -> ir.RequireFound | None:
-    return None if spec is None else ir.RequireFound(sentinel=spec.sentinel, message=spec.message)
+    """`strategy` is dropped (the IR names the mode itself); by_alias/omit_none take their
+    True/True IR defaults, since the spec has no key to override them."""
+    return None if spec is None else ir.Body.model_validate(spec, from_attributes=True)
 
 
 def _mcp(spec: schema.MCPToolSpec) -> ir.MCPTool:
-    return ir.MCPTool(
-        name=spec.name,
-        safety=spec.safety,  # str -> ir.Safety StrEnum (pydantic coerces at the IR boundary)
-        title=spec.title,
-        documentation=spec.documentation,
-        require_found=_require_found(spec.require_found),
-    )
+    """``safety`` lands as the ``ir.Safety`` StrEnum and ``require_found`` as a nested
+    ``ir.RequireFound`` - both are pydantic's own coercions at the IR boundary."""
+    return ir.MCPTool.model_validate(spec, from_attributes=True)
 
 
 def _cli(spec: schema.CLICommandSpec | None) -> ir.CLICommand | None:
-    return None if spec is None else ir.CLICommand(name=spec.name, documentation=spec.documentation)
+    return None if spec is None else ir.CLICommand.model_validate(spec, from_attributes=True)
 
 
 def _test(spec: schema.TestSpec, operation: schema.OperationSpec) -> ir.TestCase:
@@ -347,32 +344,28 @@ def _operation(spec: schema.OperationSpec) -> ir.Operation:
     _check_path_placeholders(spec)
     tests = tuple(_test(test, spec) for test in spec.tests)
     _check_test_path_args_agree(spec.name, tests)
-    return ir.Operation(
-        name=spec.name,
-        method=spec.method,
-        path=spec.path,
-        operation_id=spec.operation_id,
-        params=tuple(_param(param) for param in spec.params),
-        body=_body(spec.body),
-        response_model=_response_model(spec.name, spec.responses),
-        documentation=spec.documentation,
-        mcp=_mcp(spec.mcp),
-        cli=_cli(spec.cli),
-        tests=tests,
-        handler=spec.handler,
-    )
+    try:
+        return ir.Operation(
+            name=spec.name,
+            method=spec.method,
+            path=spec.path,
+            operation_id=spec.operation_id,
+            params=tuple(_param(param) for param in spec.params),
+            body=_body(spec.body),
+            response_model=_response_model(spec.name, spec.responses),
+            documentation=spec.documentation,
+            mcp=_mcp(spec.mcp),
+            cli=_cli(spec.cli),
+            tests=tests,
+            handler=spec.handler,
+        )
+    except ValidationError as error:  # IR invariants (a test kind naming an undeclared facet)
+        raise SpecError(str(error)) from error
 
 
 def _module_docs(spec: schema.ModuleDocsSpec) -> ir.ModuleDocs:
-    return ir.ModuleDocs(
-        client=spec.client,
-        models=spec.models,
-        cli=spec.cli,
-        mcp=spec.mcp,
-        cli_group_help=spec.cli_group_help,
-        mcp_server=spec.mcp_server,
-        client_class=spec.client_class,
-    )
+    """``ir.ModuleDocs.requests`` has no spec key and keeps its ``None`` default."""
+    return ir.ModuleDocs.model_validate(spec, from_attributes=True)
 
 
 def _resource(spec: schema.ResourceSpec) -> ir.Resource:

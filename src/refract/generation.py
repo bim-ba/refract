@@ -8,7 +8,6 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from refract.emitters.ports import EmitContext
 from refract.emitters.registry import get_backend
 from refract.spec import SpecError, SpecLoader
 
@@ -89,7 +88,7 @@ class Generator:
         return cls(get_backend(lang))
 
     def render_resource(self, res: ir.Resource, config: ir.ClientConfig) -> dict[str, str]:
-        ctx = EmitContext(package_root=_package_root(res), config=config)
+        ctx = self._backend.context(_package_root(res), config)
         files: dict[str, str] = {}
         for surface in self._backend.surfaces:
             if surface.applies(res):
@@ -101,7 +100,7 @@ class Generator:
         self, resources: tuple[ir.Resource, ...], config: ir.ClientConfig
     ) -> dict[str, str]:
         """Run each domain surface ONCE over ALL of the domain's resources (root client)."""
-        ctx = EmitContext(package_root=_package_root(resources[0]), config=config)
+        ctx = self._backend.context(_package_root(resources[0]), config)
         files: dict[str, str] = {}
         for surface in self._backend.domain_surfaces:
             if surface.applies(resources):

@@ -9,7 +9,7 @@ from refract.spec import SpecError
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.ports import EmitContext, Import, Naming, TypeMapper
+    from refract.emitters.ports import EmitContext, Import
 
 
 def render_imports(imports: tuple[Import, ...]) -> tuple[str, ...]:
@@ -34,26 +34,24 @@ def indent_lines(lines: tuple[str, ...], prefix: str) -> tuple[str, ...]:
     return tuple(f"{prefix}{line}" if line else "" for line in lines)
 
 
-def param_decl(
-    param: ir.Param, type_mapper: TypeMapper, naming: Naming
-) -> tuple[str, tuple[Import, ...]]:
+def param_decl(param: ir.Param, ctx: EmitContext) -> tuple[str, tuple[Import, ...]]:
     """Render one parameter declaration `name: Type` (+ ` = default`) and its imports.
 
     The declared identifier is shadow-guarded (`id` -> `id_`); the wire name (path placeholder,
     query alias/key) is preserved by the CALLER, not here."""
-    rt = type_mapper.render(param.type, optional=param.optional)
+    rt = ctx.type_mapper.render(param.type, optional=param.optional)
     default = (
         param.default
         if param.default is not None
-        else type_mapper.null_default(param.type, optional=param.optional)
+        else ctx.type_mapper.null_default(param.type, optional=param.optional)
     )
-    decl = f"{naming.safe_param(param.name)}: {rt.text}"
+    decl = f"{ctx.naming.identifier(param.name)}: {rt.text}"
     if default is not None:
         decl = f"{decl} = {default}"
     return decl, rt.imports
 
 
-def path_template(path: str, params: tuple[ir.Param, ...], naming: Naming) -> str:
+def path_template(path: str, params: tuple[ir.Param, ...], ctx: EmitContext) -> str:
     """The operation path with every placeholder rewritten to its guarded identifier.
 
     `widget/{id}` -> `widget/{id_}`: the URL value is unchanged (a placeholder rename, not a wire
@@ -64,7 +62,7 @@ def path_template(path: str, params: tuple[ir.Param, ...], naming: Naming) -> st
     """
     for param in params:
         if param.loc == "path":
-            safe = naming.safe_param(param.name)
+            safe = ctx.naming.identifier(param.name)
             if safe != param.name:
                 path = path.replace(f"{{{param.name}}}", f"{{{safe}}}")
     return path
@@ -83,7 +81,7 @@ def py_str(value: str) -> str:
 
 
 def signature_and_call(
-    op: ir.Operation, type_mapper: TypeMapper, naming: Naming
+    op: ir.Operation, ctx: EmitContext
 ) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...], tuple[Import, ...]]:
     """(positional_decls, keyword_only_decls, call_args, param_type_imports).
 
@@ -98,9 +96,9 @@ def signature_and_call(
     imports: list[Import] = []
     for p in op.params:
         if p.loc == "path":
-            decl, imp = param_decl(p, type_mapper, naming)
+            decl, imp = param_decl(p, ctx)
             positional.append(decl)
-            call_args.append(naming.safe_param(p.name))
+            call_args.append(ctx.naming.identifier(p.name))
             imports += imp
     if op.body is not None:
         positional.append(f"body: {op.body.model}")
@@ -108,9 +106,9 @@ def signature_and_call(
     keyword_only: list[str] = []
     for p in op.params:
         if p.loc == "query":
-            decl, imp = param_decl(p, type_mapper, naming)
+            decl, imp = param_decl(p, ctx)
             keyword_only.append(decl)
-            call_args.append(f"{naming.safe_param(p.name)}={naming.safe_param(p.name)}")
+            call_args.append(f"{ctx.naming.identifier(p.name)}={ctx.naming.identifier(p.name)}")
             imports += imp
     return tuple(positional), tuple(keyword_only), tuple(call_args), tuple(imports)
 

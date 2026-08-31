@@ -15,7 +15,7 @@ from refract.spec import SpecError
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.ports import DocComments, EmitContext, Naming, TypeMapper
+    from refract.emitters.ports import EmitContext
 
 _GROUP_DOC = "Group anchor - forces subcommand dispatch (no eager DI, so --help stays cred-free)."
 
@@ -59,7 +59,7 @@ def _partition_by_default(decls: list[str]) -> tuple[list[str], list[str]]:
 
 
 def _cli_write_parts(
-    res: ir.Resource, op: ir.Operation, ctx: EmitContext, naming: Naming, type_mapper: TypeMapper
+    res: ir.Resource, op: ir.Operation, body: ir.Body, ctx: EmitContext
 ) -> tuple[str, str, list[Import]]:
     """``(signature_tail, call_args, imports)`` for one write command.
 
@@ -75,16 +75,17 @@ def _cli_write_parts(
     from relative ``.models`` to the resource's absolute module) plus path/query scalar-type
     imports.
     """
-    option_decls, reassembly_expr, model_imports = _assembled_options(res, op, type_mapper, naming)
+    option_decls, reassembly_expr, model_imports = _assembled_options(res, op, body, ctx)
     path_decls: list[str] = []
     path_names: list[str] = []
     query_decls: list[str] = []
     query_kwargs: list[str] = []
     param_imports: list[Import] = []
     for param in op.params:
-        decl, decl_imports = param_decl(param, type_mapper, naming)
+        decl, decl_imports = param_decl(param, ctx)
         param_imports += decl_imports
-        safe = naming.safe_param(param.name)  # the guarded local identifier forwarded to the client
+        # the guarded local identifier forwarded to the client
+        safe = ctx.naming.identifier(param.name)
         if param.loc == "path":
             path_decls.append(decl)
             path_names.append(safe)
@@ -105,12 +106,7 @@ def _cli_write_parts(
 
 
 def _cli_command(
-    res: ir.Resource,
-    op: ir.Operation,
-    ctx: EmitContext,
-    naming: Naming,
-    type_mapper: TypeMapper,
-    doc_comments: DocComments,
+    res: ir.Resource, op: ir.Operation, meta: ir.CLICommand, ctx: EmitContext
 ) -> tuple[str, list[Import]]:
     """The finished text (+ model imports) for one ``@app.command()`` leaf.
 
@@ -121,31 +117,23 @@ def _cli_command(
     ``app_ctx.<d>.<r>.<op>(<path>, <body>, <query>)``. The command name is author-controlled via
     ``op.cli.name`` (not necessarily ``op.name``).
     """
-    meta = op.cli
-    if meta is None:  # resolve_cli only calls this for cli-faceted ops - fail loud if that changes
-        raise ValueError(f"{op.name}: operation has no cli facet")
-    if op.body is None:  # read: param-less passthrough (unchanged)
+    body = op.body
+    if body is None:  # read: param-less passthrough (unchanged)
         signature_tail, call_args, imports = "", "", []
     else:  # write: flat options -> reassembled typed body
-        signature_tail, call_args, imports = _cli_write_parts(res, op, ctx, naming, type_mapper)
+        signature_tail, call_args, imports = _cli_write_parts(res, op, body, ctx)
     call = f"app_ctx.{res.domain}.{res.resource}.{op.name}({call_args})"
     lines = [
         "@app.command()",
         f"def {meta.name}(ctx: typer.Context{signature_tail}) -> None:",
-        *doc_comments.render(meta.documentation, "    "),
+        *ctx.doc_comments.render(meta.documentation, "    "),
         "    app_ctx = AppContext.from_typer_context(ctx)",
         f"    Serializer.serialize({call}, app_ctx.strategy, app_ctx.console)",
     ]
     return "\n".join(lines), imports
 
 
-def resolve_cli(
-    res: ir.Resource,
-    ctx: EmitContext,
-    naming: Naming,
-    type_mapper: TypeMapper,
-    doc_comments: DocComments,
-) -> CliPageView:
+def resolve_cli(res: ir.Resource, ctx: EmitContext) -> CliPageView:
     """IR -> CliPageView: module docstring, fixed imports, body = group+callback then commands."""
     group_block = "\n".join(
         [
@@ -161,12 +149,13 @@ def resolve_cli(
     blocks = [group_block]
     command_imports: list[Import] = []
     for op in res.operations:
-        if op.cli is not None:
-            text, cmd_imports = _cli_command(res, op, ctx, naming, type_mapper, doc_comments)
+        meta = op.cli
+        if meta is not None:
+            text, cmd_imports = _cli_command(res, op, meta, ctx)
             blocks.append(text)
             command_imports += cmd_imports
     return CliPageView(
-        doc_block=doc_comments.render(res.module_docs.cli, ""),
+        doc_block=ctx.doc_comments.render(res.module_docs.cli, ""),
         header_lines=("from __future__ import annotations",),
         import_lines=(
             "import typer",
@@ -182,20 +171,18 @@ def resolve_cli(
     )
 
 
-def _option_decl(
-    name: str, field: ir.Field, type_mapper: TypeMapper
-) -> tuple[str, tuple[Import, ...]]:
+def _option_decl(name: str, field: ir.Field, ctx: EmitContext) -> tuple[str, tuple[Import, ...]]:
     """One typer option decl ``name: Type`` (+ `` = default``) for a body ``Field``.
 
     Mirrors ``param_decl`` (a typer option IS a parameter), but takes an explicit ``name`` so a
     nested field can flatten to ``<parent>_<child>``. Default is the field's explicit spec default
     or, absent that, ``type_mapper.null_default`` (implied-null).
     """
-    rendered = type_mapper.render(field.type, optional=field.optional)
+    rendered = ctx.type_mapper.render(field.type, optional=field.optional)
     default = (
         field.default
         if field.default is not None
-        else type_mapper.null_default(field.type, optional=field.optional)
+        else ctx.type_mapper.null_default(field.type, optional=field.optional)
     )
     decl = f"{name}: {rendered.text}"
     if default is not None:
@@ -240,7 +227,7 @@ def _reject_duplicate_options(op: ir.Operation, option_names: list[str]) -> None
 
 
 def _assembled_options(
-    res: ir.Resource, op: ir.Operation, type_mapper: TypeMapper, naming: Naming
+    res: ir.Resource, op: ir.Operation, body: ir.Body, ctx: EmitContext
 ) -> tuple[list[str], str, list[Import]]:
     """Flatten a write op's body model into flat typer options + a body-reassembly expression.
 
@@ -261,9 +248,6 @@ def _assembled_options(
     escape hatch for anything past scalar + one-level ref, so a rejected shape reports its
     `handler:` SpecError before any deeper/dangling ref is ever resolved.
     """
-    body = op.body
-    if body is None:  # write-op only; a bodyless op reaching here is a wiring bug - fail loud
-        raise ValueError(f"{op.name}: assembled options require a write body")
     model = _require_object_model(op, require_model(res, body.model))
     # Imports open with the body model (the reassembly ctor); each accepted one-level ref target is
     # appended at the point of acceptance below - NOT via an eager `_referenced_model_names` walk,
@@ -281,8 +265,8 @@ def _assembled_options(
     for field in model.fields:
         match field.type:
             case ScalarType():
-                option_name = naming.safe_param(field.name)  # guarded typer option identifier
-                decl, decl_imports = _option_decl(option_name, field, type_mapper)
+                option_name = ctx.naming.identifier(field.name)  # guarded typer option identifier
+                decl, decl_imports = _option_decl(option_name, field, ctx)
                 option_decls.append(decl)
                 option_names.append(option_name)
                 imports += decl_imports
@@ -293,10 +277,10 @@ def _assembled_options(
                 for child in nested.fields:
                     match child.type:
                         case ScalarType():
-                            option_name = naming.safe_param(
-                                naming.cli_option(field.name, child.name)
+                            option_name = ctx.naming.identifier(
+                                ctx.naming.cli_option(field.name, child.name)
                             )
-                            decl, decl_imports = _option_decl(option_name, child, type_mapper)
+                            decl, decl_imports = _option_decl(option_name, child, ctx)
                             option_decls.append(decl)
                             option_names.append(option_name)
                             imports += decl_imports

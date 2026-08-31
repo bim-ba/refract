@@ -13,10 +13,10 @@ from refract.emitters.python.views import RequestsPageView
 
 if TYPE_CHECKING:
     from refract import ir
-    from refract.emitters.ports import DocComments, EmitContext, Naming, TypeMapper
+    from refract.emitters.ports import EmitContext
 
 
-def path_expr(path: str, params: tuple[ir.Param, ...], naming: Naming) -> str:
+def path_expr(path: str, params: tuple[ir.Param, ...], ctx: EmitContext) -> str:
     """Emit an f-string when the path has `{placeholders}`, else a plain string literal.
 
     A path placeholder names its path param verbatim (`widget/{id}`); a shadowed name is rewritten
@@ -26,7 +26,7 @@ def path_expr(path: str, params: tuple[ir.Param, ...], naming: Naming) -> str:
     """
     if "{" not in path:
         return f'"{path}"'
-    return f'f"{path_template(path, params, naming)}"'
+    return f'f"{path_template(path, params, ctx)}"'
 
 
 def _request_doc(op: ir.Operation, *, write: bool) -> str:
@@ -35,13 +35,9 @@ def _request_doc(op: ir.Operation, *, write: bool) -> str:
     return f"``{op.method} /{op.path}`` -> {op.response_model} request builder."
 
 
-def _request_function(
-    op: ir.Operation, naming: Naming, type_mapper: TypeMapper, doc_comments: DocComments
-) -> tuple[str, list[Import]]:
+def _request_function(op: ir.Operation, ctx: EmitContext) -> tuple[str, list[Import]]:
     body = op.body  # write iff not None; narrowed to ir.Body below
-    positional, keyword_only, _call_args, param_imports = signature_and_call(
-        op, type_mapper, naming
-    )
+    positional, keyword_only, _call_args, param_imports = signature_and_call(op, ctx)
     imports: list[Import] = list(param_imports)
     if body is not None:  # write: `body: <model>` already in `positional`; add its `.models` import
         imports.append(Import(".models", body.model))
@@ -52,13 +48,15 @@ def _request_function(
     else:
         imports.append(Import(".models", response_model))
         return_type, response_kwarg = response_model, f"response_model={response_model}"
-    function_name = naming.module_function(op.name)
+    function_name = ctx.naming.identifier(op.name)
     param_list = ", ".join(params)
     sig = f"def {function_name}({param_list}) -> Request[{return_type}]:"
 
-    kwargs = [f'method="{op.method}"', f"path={path_expr(op.path, op.params, naming)}"]
+    kwargs = [f'method="{op.method}"', f"path={path_expr(op.path, op.params, ctx)}"]
     query_items = [
-        f'"{p.alias or p.name}": {naming.safe_param(p.name)}' for p in op.params if p.loc == "query"
+        f'"{p.alias or p.name}": {ctx.naming.identifier(p.name)}'
+        for p in op.params
+        if p.loc == "query"
     ]
     if query_items:
         kwargs.append("query={" + ", ".join(query_items) + "}")
@@ -68,22 +66,16 @@ def _request_function(
         )
     kwargs.append(response_kwarg)
 
-    doc = doc_comments.render(_request_doc(op, write=body is not None), "    ")
+    doc = ctx.doc_comments.render(_request_doc(op, write=body is not None), "    ")
     lines = [sig, *doc, f"    return Request({', '.join(kwargs)})"]
     return "\n".join(lines), imports
 
 
-def resolve_requests(
-    res: ir.Resource,
-    ctx: EmitContext,
-    naming: Naming,
-    type_mapper: TypeMapper,
-    doc_comments: DocComments,
-) -> RequestsPageView:
+def resolve_requests(res: ir.Resource, ctx: EmitContext) -> RequestsPageView:
     imports: list[Import] = [Import(f"{ctx.package_root}.runtime", "Request")]
     functions: list[str] = []
     for op in res.operations:
-        text, fimports = _request_function(op, naming, type_mapper, doc_comments)
+        text, fimports = _request_function(op, ctx)
         functions.append(text)
         imports += fimports
     module_doc = res.module_docs.requests or (
@@ -91,7 +83,7 @@ def resolve_requests(
         "the single HTTP contract (sans-I/O)."
     )
     return RequestsPageView(
-        doc_block=doc_comments.render(module_doc, ""),
+        doc_block=ctx.doc_comments.render(module_doc, ""),
         import_lines=render_imports(tuple(imports)),
         functions=tuple(functions),
     )

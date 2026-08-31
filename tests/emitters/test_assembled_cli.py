@@ -13,19 +13,33 @@ import ast
 import pytest
 
 from refract import ir
-from refract.emitters.ports import EmitContext
-from refract.emitters.python import resolve
+from refract.emitters.python.backend import python_backend
 from refract.emitters.python.doc_comments import PythonDocComments
 from refract.emitters.python.naming import PythonNaming
+from refract.emitters.python.resolve.cli import _assembled_options, _cli_command, resolve_cli
 from refract.emitters.python.types import PythonTypeMapper
 from refract.spec import SpecError
 
 NAMING = PythonNaming()
 TYPE_MAPPER = PythonTypeMapper()
 DOCSTRINGS = PythonDocComments()
-CTX = EmitContext(package_root="ycli.yandex.tracker")
+_CONFIG = ir.ClientConfig(name="tracker", server=ir.Server(base_url="https://api.example"))
+
+CTX = python_backend().context("ycli.yandex.tracker", _CONFIG)
 
 _STRING = ir.ScalarType(scalar="string")
+
+
+def _command(op: ir.Operation) -> ir.CLICommand:
+    """The op's cli facet, narrowed - every operation in this module declares one."""
+    assert op.cli is not None
+    return op.cli
+
+
+def _body(op: ir.Operation) -> ir.Body:
+    """The op's write body, narrowed - every operation reaching `_assembled_options` has one."""
+    assert op.body is not None
+    return op.body
 
 
 def _priorities_like_resource() -> ir.Resource:
@@ -85,7 +99,7 @@ def _single_body_resource(model: ir.ObjectModel) -> ir.Resource:
 def test_assembled_options_flatten_one_level_ref():
     res = _priorities_like_resource()
     op = res.operations[0]
-    decls, expr, imports = resolve._assembled_options(res, op, TYPE_MAPPER, NAMING)
+    decls, expr, imports = _assembled_options(res, op, _body(op), CTX)
     joined = " ".join(decls)
     assert "key: str" in joined  # required scalar leaf - no default
     assert "name_ru: str | None" in joined  # one-level ref<LocalizedName> flattened
@@ -107,7 +121,7 @@ def test_assembled_options_dangling_ref_raises_specerror_not_keyerror():
     )
     res = _single_body_resource(model)
     with pytest.raises(SpecError, match="undeclared model 'Nope'"):
-        resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
+        _assembled_options(res, res.operations[0], _body(res.operations[0]), CTX)
 
 
 def test_assembled_options_rejects_map_body():
@@ -115,7 +129,7 @@ def test_assembled_options_rejects_map_body():
     model = ir.ObjectModel(name="Bulk", fields=(ir.Field(name="labels", type=labels),))
     res = _single_body_resource(model)
     with pytest.raises(SpecError, match="not yet implemented"):
-        resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
+        _assembled_options(res, res.operations[0], _body(res.operations[0]), CTX)
 
 
 def test_assembled_options_rejects_two_level_ref():
@@ -143,7 +157,7 @@ def test_assembled_options_rejects_two_level_ref():
         ),
     )
     with pytest.raises(SpecError, match="not yet implemented"):
-        resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
+        _assembled_options(res, res.operations[0], _body(res.operations[0]), CTX)
 
 
 def test_assembled_options_rejects_unsupported_shape_before_resolving_dangling_nested_ref():
@@ -163,7 +177,7 @@ def test_assembled_options_rejects_unsupported_shape_before_resolving_dangling_n
     )
     res = _single_body_resource(model)  # `Undeclared` is intentionally NOT declared
     with pytest.raises(SpecError, match="not yet implemented"):
-        resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
+        _assembled_options(res, res.operations[0], _body(res.operations[0]), CTX)
 
 
 def test_assembled_options_rejects_ref_to_root_list_target():
@@ -189,7 +203,7 @@ def test_assembled_options_rejects_ref_to_root_list_target():
         ),
     )
     with pytest.raises(SpecError, match=r"not an object.*not yet implemented"):
-        resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
+        _assembled_options(res, res.operations[0], _body(res.operations[0]), CTX)
 
 
 def test_assembled_options_rejects_option_name_collision():
@@ -221,7 +235,7 @@ def test_assembled_options_rejects_option_name_collision():
         operations=(op,),
     )
     with pytest.raises(SpecError, match="collision"):
-        resolve._assembled_options(res, op, TYPE_MAPPER, NAMING)
+        _assembled_options(res, op, _body(op), CTX)
 
 
 def test_assembled_options_guards_shadowed_body_field():
@@ -229,7 +243,9 @@ def test_assembled_options_guards_shadowed_body_field():
     reassembly KWARG stays the model field name -> `Widget(id=id_)` (wire/field name preserved)."""
     model = ir.ObjectModel(name="Widget", fields=(ir.Field(name="id", type=_STRING),))
     res = _single_body_resource(model)
-    decls, expr, _imports = resolve._assembled_options(res, res.operations[0], TYPE_MAPPER, NAMING)
+    decls, expr, _imports = _assembled_options(
+        res, res.operations[0], _body(res.operations[0]), CTX
+    )
     assert "id_: str" in " ".join(decls)  # guarded typer option identifier
     assert expr == "Widget(id=id_)"  # KWARG = model field name; VALUE = guarded option identifier
 
@@ -253,24 +269,10 @@ def test_cli_command_guards_shadowed_body_field_end_to_end():
         models=(model,),
         operations=(op,),
     )
-    block, _imports = resolve._cli_command(res, op, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    block, _imports = _cli_command(res, op, _command(op), CTX)
     ast.parse(block)
     assert "def create(ctx: typer.Context, id_: str) -> None:" in block
     assert "app_ctx.tracker.widgets.create(Widget(id=id_))" in block
-
-
-def test_assembled_options_requires_write_body():
-    """A bodyless op reaching the builder is a wiring bug - fail loud (mirrors `_cli_command`)."""
-    op = ir.Operation(name="get", method="GET", path="things", operation_id="things_get")
-    res = ir.Resource(
-        domain="tracker",
-        resource="things",
-        security="oauth_token",
-        models=(),
-        operations=(op,),
-    )
-    with pytest.raises(ValueError, match="write body"):
-        resolve._assembled_options(res, op, TYPE_MAPPER, NAMING)
 
 
 # --- Task 9 (D5b): `_cli_command` wires the assembled options into a write command ---
@@ -280,7 +282,7 @@ def test_cli_command_write_op_assembles_body():
     """A write op's command carries the flat options and forwards the reassembled body."""
     res = _priorities_like_resource()
     op = res.operations[0]
-    block, _imports = resolve._cli_command(res, op, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    block, _imports = _cli_command(res, op, _command(op), CTX)
     assert "def create(ctx: typer.Context, key: str, name_ru: str | None = None" in block
     assert "name_en: str | None = None" in block  # one-level ref<LocalizedName> flattened
     assert (
@@ -294,7 +296,7 @@ def test_cli_page_remaps_model_imports_to_absolute():
     """Finding #5 regression: the relative `.models` `_assembled_options` emits is remapped to the
     resource's ABSOLUTE models module (``.models`` would wrongly resolve inside the cli package)."""
     res = _priorities_like_resource()
-    page = resolve.resolve_cli(res, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    page = resolve_cli(res, CTX)
     assert (
         "from ycli.yandex.tracker.priorities.models import LocalizedName, PriorityCreate"
         in page.import_lines
@@ -324,7 +326,7 @@ def test_cli_page_remap_passes_through_non_models_import():
         models=(model,),
         operations=(op,),
     )
-    page = resolve.resolve_cli(res, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    page = resolve_cli(res, CTX)
     assert "from typing import Any" in page.import_lines
 
 
@@ -350,7 +352,7 @@ def test_cli_command_write_op_threads_path_and_query_params():
         models=(thing,),
         operations=(edit,),
     )
-    block, _imports = resolve._cli_command(res, edit, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    block, _imports = _cli_command(res, edit, _command(edit), CTX)
     assert "def edit(ctx: typer.Context, label: str, thing_id: str, notify: bool) -> None:" in block
     assert "app_ctx.tracker.things.edit(thing_id, Thing(label=label), notify=notify)" in block
 
@@ -382,7 +384,7 @@ def test_cli_command_rejects_body_option_colliding_with_query_param():
         operations=(edit,),
     )
     with pytest.raises(SpecError, match=r"collision.*label|label.*collision"):
-        resolve._cli_command(res, edit, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+        _cli_command(res, edit, _command(edit), CTX)
 
 
 def test_cli_command_read_op_unchanged():
@@ -403,7 +405,7 @@ def test_cli_command_read_op_unchanged():
         models=(),
         operations=(get_op,),
     )
-    block, imports = resolve._cli_command(res, get_op, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    block, imports = _cli_command(res, get_op, _command(get_op), CTX)
     assert imports == []
     assert block == (
         "@app.command()\n"
@@ -450,7 +452,7 @@ def test_cli_command_edit_shape_orders_required_path_before_defaulted_options():
         models=(priority_edit,),
         operations=(edit,),
     )
-    block, _imports = resolve._cli_command(res, edit, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    block, _imports = _cli_command(res, edit, _command(edit), CTX)
     ast.parse(block)  # no SyntaxError - the crux of the regression
     def_line = next(line for line in block.splitlines() if line.startswith("def edit("))
     assert def_line.index("priority_id: str") < def_line.index("= None")
@@ -483,7 +485,7 @@ def test_assembled_options_orders_required_scalar_before_defaulted_scalar():
         models=(model,),
         operations=(op,),
     )
-    block, _imports = resolve._cli_command(res, op, CTX, NAMING, TYPE_MAPPER, DOCSTRINGS)
+    block, _imports = _cli_command(res, op, _command(op), CTX)
     ast.parse(block)  # no SyntaxError
     def_line = next(line for line in block.splitlines() if line.startswith("def write("))
     assert def_line.index("key: str") < def_line.index("note: str | None = None")

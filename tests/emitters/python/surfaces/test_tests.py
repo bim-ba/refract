@@ -1,5 +1,5 @@
 from refract import ir
-from refract.emitters.ports import EmitContext
+from refract.emitters.python.backend import python_backend
 
 # A resource whose sole operation carries no `tests:` facet - proves the `applies() is False`
 # branch without depending on the `priorities` example fixture, which now DOES carry tests
@@ -15,9 +15,9 @@ _NO_TESTS_RESOURCE = ir.Resource(
 )
 
 # _URL now builds from ctx.config.server.base_url (base_url moved off Resource to ClientConfig).
-CTX = EmitContext(
-    package_root="ycli.yandex.tracker",
-    config=ir.ClientConfig(
+CTX = python_backend().context(
+    "ycli.yandex.tracker",
+    ir.ClientConfig(
         name="tracker",
         server=ir.Server(base_url="https://api.tracker.yandex.net/v3"),
     ),
@@ -25,15 +25,10 @@ CTX = EmitContext(
 
 
 def _surface():
-    from refract.emitters.python.doc_comments import PythonDocComments
-    from refract.emitters.python.naming import PythonNaming
-    from refract.emitters.python.surfaces.tests import TestsSurface
+    from refract.emitters.python.surfaces import TESTS_SURFACE, TemplateSurface
     from refract.emitters.python.templating import make_template_environment
-    from refract.emitters.python.types import PythonTypeMapper
 
-    return TestsSurface(
-        PythonNaming(), PythonTypeMapper(), PythonDocComments(), make_template_environment()
-    )
+    return TemplateSurface(TESTS_SURFACE, make_template_environment())
 
 
 def _emit(res):
