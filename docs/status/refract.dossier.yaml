@@ -2,7 +2,7 @@
 kind: dossier
 project: refract
 subtitle: Что мы выяснили про рынок, дифференциацию и кодовую базу генератора, и на чём это основано.
-updated: 2026-09-01T22:03:00+03:00
+updated: 2026-09-01T22:25:00+03:00
 favicon: "📚"
 accent: {light: "#3D49C4", dark: "#8B95F2", soft_light: "#E8EAFB", soft_dark: "#262B45"}
 
@@ -242,6 +242,68 @@ entries:
             - ["А - своё рядом", "сгенерированные файлы только для чтения; своё в custom.py с фиксированным именем, генератор кладёт заготовку один раз; хуки extend_cli и extend_mcp", "нельзя править строку внутри сгенерированного метода, только обернуть его через super()"]
             - ["Б - защищённые области", "маркеры custom-begin и custom-end внутри сгенерированных файлов", "пустые пары маркеров во всех файлах корпуса; правки вне маркеров теряются молча; обернуть метод нельзя"]
             - ["В - трёхстороннее слияние", "снимок прошлой генерации плюс merge, как Fern Replay", "каталог состояния, конфликты требуют человека, смысл --check размывается"]
+      - heading: Вариант А в коде
+        paragraphs:
+          - >-
+            Дубликата нет: сгенерированный файл держит только сгенерированное, твой `custom.py` -
+            только твоё, имя фиксированное, одно на ресурс. Генератор кладёт заготовку один раз;
+            корневой клиент всегда импортирует класс из `custom.py`.
+        code:
+          language: python
+          block: |
+            # out/github/repos/custom.py - генератор создал заготовку и больше не трогает
+            from .client import ReposClient as _Generated
+            from .models import Issue, IssueCreate, Repo
+
+            class ReposClient(_Generated):
+                def create_issue_if_absent(self, owner: str, repo: str, title: str) -> Issue:
+                    """Открой issue, если такого ещё нет - составной вызов для агента."""
+                    for issue in self.issues(owner, repo, state="open").root:
+                        if issue.title == title:
+                            return issue
+                    return self.create_issue(owner, repo, IssueCreate(title=title))
+
+                def get(self, owner: str, repo: str) -> Repo:
+                    """Обернуть сгенерированный метод целиком: повторить при 502."""
+                    try:
+                        return super().get(owner, repo)
+                    except UpstreamError:
+                        return super().get(owner, repo)
+      - heading: Вариант Б в коде
+        paragraphs:
+          - >-
+            Маркеры живут внутри сгенерированного файла; при регенерации содержимое области
+            переносится в новый рендер. Правка вне маркеров теряется молча, обернуть
+            сгенерированный метод нельзя - он вне области.
+        code:
+          language: python
+          block: |
+            class ReposClient(GithubResource):
+                def get(self, owner: str, repo: str) -> Repo:
+                    return self._session.send(_requests.get(owner, repo))
+
+                # refract:custom-begin ReposClient.methods
+                def create_issue_if_absent(self, owner: str, repo: str, title: str) -> Issue:
+                    ...
+                # refract:custom-end
+      - heading: Вариант В в коде
+        paragraphs:
+          - >-
+            Генератор хранит снимок прошлой генерации и сливает три версии, как git. Пока спека и
+            ты меняли разные места - сливается само; одно и то же место - конфликт, его разбирает
+            человек.
+        code:
+          block: |
+            .refract/snapshot/github/repos/client.py   # что генератор выдал в прошлый раз
+            out/github/repos/client.py                 # то же самое + твои правки
+            <новая генерация>                          # из изменённой спеки
+
+                def get(self, owner: str, repo: str) -> Repo:
+            <<<<<<< yours
+                    """One repository, retried once on 502."""
+            =======
+                    """GET /repos/{owner}/{repo} -> one repository (cached 60 s)."""
+            >>>>>>> generated
       - heading: Сопутствующее
         note:
           state: open
@@ -263,6 +325,40 @@ entries:
       201, слеши, вложенные коллекции, отсутствие delete в корпусе). Рекомендация: сначала
       `kind:` у операции, заголовок ресурса как в Smithy - после роста корпуса. Выбор за владельцем.
     sections:
+      - heading: Как операция выглядит сегодня
+        code:
+          language: yaml
+          block: |
+            - name: get
+              method: GET                # выводимо: чтение = GET
+              path: repos/{owner}/{repo}
+              operationId: repos_get     # выводимо: ресурс_операция
+              params:
+                - {name: owner, loc: path, type: string}
+                - {name: repo,  loc: path, type: string}
+              responses: {200: {model: Repo}}
+              mcp:
+                name: repos_get          # выводимо
+                safety: RO               # выводимо: чтение = только читает
+                title: "Get a GitHub repository"
+      - heading: Та же операция с kind
+        paragraphs:
+          - >-
+            Из `kind` выводятся метод, `operationId`, имя тула и класс безопасности; путь,
+            параметры, статус и тексты остаются явными. Спека больше не может соврать - `kind:
+            get` с методом POST падает при загрузке.
+        code:
+          language: yaml
+          block: |
+            - name: get
+              kind: get                  # -> GET, repos_get, safety RO
+              path: repos/{owner}/{repo}
+              params:
+                - {name: owner, loc: path, type: string}
+                - {name: repo,  loc: path, type: string}
+              responses: {200: {model: Repo}}
+              mcp:
+                title: "Get a GitHub repository"
       - heading: Варианты
         table:
           columns: [Вариант, Что даёт, Цена]
@@ -304,6 +400,7 @@ changelog:
   - date: 2026-09-01
     items:
       - Досье переведено на общий вид «<project>: досье».
+      - Возвращены живые код-примеры в развилки 18 и 19 (контракт вида получил код-блок).
   - date: 2026-08-31
     items:
       - Добавлены дизайн-развилки 18 и 19 с вариантами и рекомендациями.
