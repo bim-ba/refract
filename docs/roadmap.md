@@ -1,7 +1,7 @@
 # refract — roadmap & build state
 
 > Resume-here doc. For the design, see `design.md`.
-> Status page: https://claude.ai/code/artifact/a5ac6d93-a36e-453a-9168-34cae528ca9e (title "refract: статус"), rendered from `docs/status/refract.status.yaml` with the skill `documenting:publishing-project-status` (bim-ba/ai) - edit the YAML, re-render, republish to the same URL. Research dossier: https://claude.ai/code/artifact/c1bff73d-024d-445f-9932-227f657cb253.
+> Status page: https://claude.ai/code/artifact/a5ac6d93-a36e-453a-9168-34cae528ca9e (title "refract: статус"), rendered from `docs/status/refract.status.yaml` with the skill `documenting:publishing-project-status` (bim-ba/ai) - edit the YAML, re-render, republish to the same URL. Research dossier: https://claude.ai/code/artifact/c1bff73d-024d-445f-9932-227f657cb253 (title "refract: досье"), rendered from `docs/status/refract.dossier.yaml` with the same skill.
 > Last updated after PR #9 — public repo, milestones A · A.2 · P0 · P1 merged.
 
 ## Where we are
