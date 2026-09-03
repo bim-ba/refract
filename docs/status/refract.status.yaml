@@ -2,7 +2,7 @@
 # Render: uv run --script <skill>/scripts/render_status.py refract.status.yaml -o refract.status.html
 project: refract
 subtitle: "Spec-driven генератор: одна YAML-спека API превращается в типизированный Python SDK, CLI, MCP-сервер и тесты."
-updated: 2026-09-01T16:37:00+03:00
+updated: 2026-09-03T15:40:00+03:00
 favicon: "🌈"
 accent: {light: "#3D49C4", dark: "#8B95F2", soft_light: "#E8EAFB", soft_dark: "#262B45"}
 
@@ -14,27 +14,30 @@ links:
 
 summary:
   verdict: >-
-    Всё, что владелец разрешил на цикл, влито в main: 11 PR, 6 закрытых issues, ни одного открытого
-    PR кроме релизного. Репозиторий выглядит как продукт (логотип, демо-гифка, README, About,
-    release-please) и держит планку: 100% покрытие, байт-эквивалентный золотой корпус из двух API.
-    Дальше движение упирается в два решения владельца по дизайну спеки (#18 и #19) и в разрывы
-    генератора, которые вскрыл первый чужой API (#30, #32) - они заведены, но никем не взяты.
+    Всё разрешённое влито: 15 PR с 30 августа, 6 закрытых issues, из открытых PR только релизный.
+    Репозиторий выглядит как продукт и держит планку: 100% покрытие, байт-эквивалентный золотой
+    корпус из двух API. Два дня движения нет: следующие шаги упираются в три решения владельца
+    (#18, #19, выпуск v0.2.0) и в разрывы генератора #30 и #32, которые никто не взял.
   kpis:
-    - {value: "11", label: "PR влиты за цикл", state: done}
+    - {value: "15", label: "PR влиты с 30 августа", state: done}
     - {value: "6", label: "issues закрыты", state: done}
     - {value: "13", label: "issues открыто", state: open}
     - {value: "3", label: "решения за владельцем", state: wait}
 
 now:
   waiting:
-    - {text: "Вариант по #18: правки, переживающие регенерацию (А / Б / В)", who: владелец, since: 2026-08-31, url: https://github.com/bim-ba/refract/issues/18}
-    - {text: "Вариант по #19: ресурсный уровень спеки (А / Б / ждать)", who: владелец, since: 2026-08-31, url: https://github.com/bim-ba/refract/issues/19}
-    - {text: "Выпускать ли v0.2.0 (первый CHANGELOG подметёт старую историю)", who: владелец, since: 2026-08-30, url: https://github.com/bim-ba/refract/pull/15}
+    - {text: "Вариант по #18: правки, переживающие регенерацию (А / Б / В)", who: владелец, since: 2026-08-31, url: https://github.com/bim-ba/refract/issues/18, stream: design}
+    - {text: "Вариант по #19: ресурсный уровень спеки (А / Б / ждать)", who: владелец, since: 2026-08-31, url: https://github.com/bim-ba/refract/issues/19, stream: design}
+    - {text: "Выпускать ли v0.2.0 (первый CHANGELOG подметёт старую историю)", who: владелец, since: 2026-08-30, url: https://github.com/bim-ba/refract/pull/15, stream: release}
 
 streams:
   - id: bugs
     title: Баги спеки и эмиттеров
     state: done
+    context:
+      problem: "Четыре бага спеки и эмиттеров: дубли тегов, непроверенные плейсхолдеры пути, молча игнорируемые поля, мок-URL со скобками в сгенерированных тестах."
+      doing: "Все четыре закрыты через ревью с доказанным red-green; поток закрыт."
+      need: "Ничего, поток закрыт."
     tasks:
       - {id: "#5", url: https://github.com/bim-ba/refract/issues/5, state: done, label: дедуп дискриминатора}
       - {id: "#6", url: https://github.com/bim-ba/refract/issues/6, state: done, label: сверка плейсхолдеров пути}
@@ -50,6 +53,12 @@ streams:
   - id: corpus
     title: Корпус примеров
     state: open
+    context:
+      problem: "Корпус примеров из двух API мал: каждый чужой API вскрывает разрывы генератора, а проверять их пока не на чем."
+      doing: "Добавлен GitHub API с защитой регенерацией в CI; следующие API не начаты."
+      need: "Сначала закрыть #32 (корень пакета), иначе каждый новый пример наследует чужой namespace; затем выбрать 3-5 API."
+      nuances:
+        - "Не-REST и XML API - отдельное исследование #22, кандидаты не выбраны."
     tasks:
       - {id: "#21", url: https://github.com/bim-ba/refract/issues/21, state: open, label: 3-5 реальных API в репо с CI}
       - {id: "#22", url: https://github.com/bim-ba/refract/issues/22, state: open, label: "не-REST API, исследование"}
@@ -60,6 +69,13 @@ streams:
   - id: gaps
     title: Разрывы генератора, вскрытые корпусом
     state: open
+    context:
+      problem: "Первый чужой API показал: CLI-команда чтения падает с TypeError, сгенерированный код импортирует ycli.yandex.*, заголовки по умолчанию и массивы в CLI не поддержаны."
+      doing: "Ничего: шесть задач заведены, никем не взяты."
+      need: "Владелец решает, кто берёт #30 и #32 - они блокируют CLI-фасеты у чтений и рост корпуса."
+      nuances:
+        - "CLI- и MCP-тест-кейсы не передают path-параметры (#35) - следующий слой той же проблемы."
+        - "Генератор ничего не удаляет: выпавшие из спеки файлы остаются в out/ (#38)."
     tasks:
       - {id: "#30", url: https://github.com/bim-ba/refract/issues/30, state: bad, label: CLI-чтение теряет параметры}
       - {id: "#32", url: https://github.com/bim-ba/refract/issues/32, state: bad, label: корень пакета захардкожен}
@@ -72,6 +88,13 @@ streams:
   - id: design
     title: Дизайн спеки
     state: wait
+    context:
+      problem: "Спека описывает каждую операцию руками, а ручные правки сгенерированного кода теряются при регенерации; оба вопроса блокируют переход авторов рукописных обёрток."
+      doing: "Варианты с живым кодом лежат в досье (записи fork18 и fork19), рекомендации даны."
+      need: "Владелец выбирает: по #18 вариант А, Б или В, по #19 А, Б или ждать; после выбора - по одному PR на вопрос."
+      nuances:
+        - "Вывод «у чтений CLI есть по умолчанию» упирается в #30."
+        - "MCP до лучшего в классе (#23) и A2A Agent Cards (#24) - бэклог без владельца."
     tasks:
       - {id: "#8", url: https://github.com/bim-ba/refract/issues/8, state: done, label: SDK как ядро}
       - {id: "#18", url: https://github.com/bim-ba/refract/issues/18, state: wait, label: правки после регенерации}
@@ -85,6 +108,10 @@ streams:
   - id: simplify
     title: Кодовая база
     state: done
+    context:
+      problem: "Питоновский бэкенд нёс копипасту восьми классов-эмиттеров и ручную переписку полей в лоадере."
+      doing: "Безопасный пакет применён в PR #37: минус 240 строк src без изменения байтов выхода; поток закрыт."
+      need: "Ничего, поток закрыт."
     tasks:
       - {id: "#20", url: https://github.com/bim-ba/refract/issues/20, state: done, label: пакет упрощений}
     changes:
@@ -94,6 +121,10 @@ streams:
   - id: product
     title: Оформление и документация
     state: done
+    context:
+      problem: "Репозиторий не выглядел как продукт: README в три строки, пустой About, без логотипа и демо."
+      doing: "Логотип, демо-гифка, продуктовая шапка README, About и топики влиты; поток закрыт."
+      need: "Ничего, поток закрыт."
     changes:
       - {id: "#13", url: https://github.com/bim-ba/refract/pull/13, state: done, label: README}
       - {id: "#26", url: https://github.com/bim-ba/refract/pull/26, state: done, label: логотип и VHS-демо}
@@ -104,6 +135,12 @@ streams:
   - id: release
     title: Релизы и CI
     state: wait
+    context:
+      problem: "Релизного контура не было; теперь release-please ведёт релизный PR, но ни одного выпуска ещё не было."
+      doing: "Ждём слова владельца по v0.2.0; behavioral-ярус тестов в CI не подключён (#36)."
+      need: "Владелец решает, выпускать ли v0.2.0: первый CHANGELOG подметёт всю старую историю коммитов."
+      nuances:
+        - "Публикация в PyPI намеренно не настроена до выхода из альфы."
     tasks:
       - {id: "#36", url: https://github.com/bim-ba/refract/issues/36, state: open, label: behavioral-тесты в CI}
     changes:
@@ -214,6 +251,9 @@ tails:
   - {text: "Не-REST API (#22)", state: open, why: "Исследование, кандидаты API не выбраны."}
 
 changelog:
+  - date: 2026-09-03
+    items:
+      - Потоки получили контекст «Проблема / Делаем / Нужно», строки «ждём» сгруппированы по направлениям.
   - date: 2026-09-01
     items:
       - Статус переведён на общий шаблон «<project>: статус».
@@ -230,7 +270,7 @@ changelog:
       - Семь исследовательских потоков сведены в досье.
 
 sources:
-  - {label: "Issues и PR репозитория", url: https://github.com/bim-ba/refract/issues, read_at: 2026-09-01T16:32:00+03:00}
-  - {label: "История main", url: https://github.com/bim-ba/refract/commits/main, read_at: 2026-09-01T16:32:00+03:00}
-  - {label: "design.md", url: https://github.com/bim-ba/refract/blob/main/docs/design.md, read_at: 2026-09-01T16:32:00+03:00}
-  - {label: "Отчёты ревью и исследований (scratchpad сессии)", read_at: 2026-09-01T16:32:00+03:00}
+  - {label: "Issues и PR репозитория", url: https://github.com/bim-ba/refract/issues, read_at: 2026-09-03T15:34:00+03:00}
+  - {label: "История main", url: https://github.com/bim-ba/refract/commits/main, read_at: 2026-09-03T15:34:00+03:00}
+  - {label: "design.md", url: https://github.com/bim-ba/refract/blob/main/docs/design.md, read_at: 2026-09-03T15:34:00+03:00}
+  - {label: "Отчёты ревью и исследований (scratchpad сессии)", read_at: 2026-09-03T15:34:00+03:00}
