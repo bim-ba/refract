@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.0](https://github.com/bim-ba/refract/compare/v0.2.0...v0.3.0) (2026-09-05)
+
+
+### Features
+
+* **agents:** add project instructions and a neutral skills root ([de293d2](https://github.com/bim-ba/refract/commit/de293d218c5326cb9010c6915e20e4220a8ec8b5))
+
+
+### Chores
+
+* **settings:** disable the clickhouse plugin in this project ([0e53013](https://github.com/bim-ba/refract/commit/0e5301397f923ccb63a4411e6a6c1b63dd5e892a))
+* **settings:** stop re-enabling plugins that are off globally ([c4a6220](https://github.com/bim-ba/refract/commit/c4a62203b3926944ab9a3dc2796c4b5a21646944))
+* **settings:** stop re-enabling plugins that are off globally ([dd724c5](https://github.com/bim-ba/refract/commit/dd724c57898361866d3bbaac9cc62e9d2435360a))
+
 ## [0.2.0](https://github.com/bim-ba/refract/compare/v0.1.0...v0.2.0) (2026-09-03)
 
 
