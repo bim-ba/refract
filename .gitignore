@@ -22,3 +22,5 @@ references/**
 
 # .codex/config.toml is generated from the MCP config and carries live credentials.
 /.codex/config.toml
+
+.playwright-mcp/
