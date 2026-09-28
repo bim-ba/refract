@@ -1,3 +1,10 @@
+---
+root: true
+targets:
+  - '*'
+globs:
+  - '**/*'
+---
 # CLAUDE.md - refract
 
 refract compiles one neutral YAML API spec (`resource.yaml` + `client.yaml`) into a typed Python SDK, CLI, FastMCP server, models and tests. It is alpha: one target language (Python) and one proving ground, the `examples/ycli-tracker` golden oracle, whose checked-in `out/` the generator must reproduce byte for byte.
