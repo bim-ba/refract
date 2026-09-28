@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.3.0](https://github.com/bim-ba/refract/compare/v0.2.0...v0.3.0) (2026-09-28)
+
+
+### Features
+
+* **agents:** add project instructions and a neutral skills root ([de293d2](https://github.com/bim-ba/refract/commit/de293d218c5326cb9010c6915e20e4220a8ec8b5))
+
+
+### Chores
+
+* **ai:** migrate project config to a rulesync canon ([f8487a7](https://github.com/bim-ba/refract/commit/f8487a79c600cad99df5234b437ffb9fa0e69e99))
+* **ai:** перенос конфигурации проекта в rulesync-канон ([10154bb](https://github.com/bim-ba/refract/commit/10154bbc5f6767ec39c5ad58bbb21a3863b4c17f))
+* **claude:** drop retired bim-ba marketplace settings ([f352b23](https://github.com/bim-ba/refract/commit/f352b237862f27a0e520b519b44f4a4c9d330d10))
+* **claude:** удалить настройки выведенного из эксплуатации маркетплейса bim-ba ([0d27a30](https://github.com/bim-ba/refract/commit/0d27a30d285af87fe7895d693334b5089dd49930))
+* **gitignore:** ignore agent browser scratch ([c80eebc](https://github.com/bim-ba/refract/commit/c80eebcd6cca670f9730a73e0ef3b98ae77e54af))
+* **rulesync:** drop the retired bim-ba plugins from the canon ([ed520d5](https://github.com/bim-ba/refract/commit/ed520d5aa4bd3c898c2530ec999e2e951dd9a32d))
+* **rulesync:** drop the retired bim-ba plugins from the canon ([545f2aa](https://github.com/bim-ba/refract/commit/545f2aa4295cd84f62ee07ce4e1b904bee03b28d))
+* **settings:** disable the clickhouse plugin in this project ([0e53013](https://github.com/bim-ba/refract/commit/0e5301397f923ccb63a4411e6a6c1b63dd5e892a))
+* **settings:** stop re-enabling plugins that are off globally ([c4a6220](https://github.com/bim-ba/refract/commit/c4a62203b3926944ab9a3dc2796c4b5a21646944))
+* **settings:** stop re-enabling plugins that are off globally ([dd724c5](https://github.com/bim-ba/refract/commit/dd724c57898361866d3bbaac9cc62e9d2435360a))
+
 ## [0.2.0](https://github.com/bim-ba/refract/compare/v0.1.0...v0.2.0) (2026-09-03)
 
 
