@@ -1,0 +1,28 @@
+{
+  "mcp": {
+    "graphify": {
+      "type": "local",
+      "command": [
+        "graphify-mcp",
+        "--transport",
+        "stdio",
+        "/home/sava/git/bim-ba/refract/graphify-out/graph.json"
+      ],
+      "enabled": true
+    }
+  },
+  "permission": {
+    "read": {
+      "*": "allow"
+    },
+    "grep": {
+      "*": "allow"
+    },
+    "glob": {
+      "*": "allow"
+    },
+    "bash": {
+      "*": "allow"
+    }
+  }
+}

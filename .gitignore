@@ -12,6 +12,9 @@ dist/
 PROMPT.md
 graphify-out/
 
+# Project secrets loaded by direnv; never commit.
+.env
+
 artifacts/
 
 # Vendored external API docs — local-only research anchor (regenerate via scripts/fetch_docs.py).

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://github.com/dyoshikawa/rulesync/releases/latest/download/mcp-schema.json",
+  "mcpServers": {
+    "graphify": {
+      "type": "stdio",
+      "command": "graphify-mcp",
+      "args": [
+        "--transport",
+        "stdio",
+        "/home/sava/git/bim-ba/refract/graphify-out/graph.json"
+      ]
+    }
+  }
+}
