@@ -27,6 +27,7 @@ Baseline agent discipline comes from the `core` and `drifts` plugins of the `bim
 ## Conventions
 
 - Python >= 3.12; `uv` only (`uv sync`, `uv run`), with `uv.lock` and the `dev` dependency group in `pyproject.toml`.
+- **Issue labels:** `.github/labels.yml` is the only list of labels. Every issue an agent opens carries one `needs:*` when the owner has to act, at least one `scope:*`, one `priority:*` and one `type:*`; `wayfinder:*` belongs only to a map and its tickets.
 - ruff is both linter and formatter (`line-length = 100`, an explicit `select` list); `ty` is the type checker, configured with `error-on-warning = true`.
 - `examples/` is excluded from ruff and from ty on purpose: it is external source used as a byte-equality target, so linting or reformatting it defeats the test it exists for.
 - pytest runs with `--cov-fail-under=100` and `-m 'not behavioral'`; run the slow tests explicitly with `uv run pytest -m behavioral`.
